@@ -145,11 +145,6 @@ main(int argc, char *argv[])
 	    "KL iters");
       exit(QPB_PARSER_ERROR);
     }
-  if(kl_iters != 1)
-    {
-      error("%s: option currently supports only 1 iteration\n", "KL iters");
-      exit(QPB_PARSER_ERROR);
-    }
 
   qpb_double ape_alpha;
   if(sscanf(qpb_parse("APE alpha"), "%lf", &ape_alpha)!=1)
@@ -276,6 +271,13 @@ main(int argc, char *argv[])
       timebc = 1;
     }
 
+  qpb_double scaling_factor;
+  if(sscanf(qpb_parse("Scaling factor"), "%lf", &scaling_factor)!=1)
+  {
+    error("error parsing for %s\n", "Mu");
+    exit(QPB_PARSER_ERROR);
+  }
+
   qpb_finalize_parser();
 
   /* initialize cartesian grid and index tables */
@@ -338,6 +340,10 @@ main(int argc, char *argv[])
       print(" Dslash operator is Standard\n");
       break;
     }
+  print(" KL class = %d\n", 11);
+  print(" KL iters = %d\n", kl_iters);
+  print(" Mu = %lf\n", scaling_factor);
+  
   qpb_rng_init(seed);
   problem_params.timebc = timebc;
 
@@ -428,7 +434,8 @@ main(int argc, char *argv[])
   qpb_double *diffs;
   diffs = qpb_alloc(sizeof(qpb_double)*n_vec);
 
-  qpb_overlap_kl_init(solver_arg_links, clover_term, rho, c_sw, mass);
+  qpb_overlap_kl_init(solver_arg_links, clover_term, rho, c_sw, mass,\
+                                                              scaling_factor);
 
   qpb_double t = qpb_stop_watch(0);
   for(int i=0; i<n_vec; i++)
