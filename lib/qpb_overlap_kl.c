@@ -13,6 +13,8 @@
 #include <qpb_stop_watch.h>
 #include <qpb_kl_defs.h>
 #include <qpb_mscongrad.h>
+#include <math.h>
+
 
 #define OVERLAP_NUMB_TEMP_VECS 15
 #define CG_NUMB_TEMP_VECS 13
@@ -323,6 +325,12 @@ qpb_overlap_kl(qpb_spinor_field y, qpb_spinor_field x, \
 
         qpb_double numerator[] = {0.22913137869461408420, 0.29629629629629629630, 0.53783925010249025994, 1.8996960378695623225};
         qpb_double shifts[] = {0.031091204125763378918, 0.33333333333333333333, 1.4202766254612061697, 7.5486321704130304514};
+        
+        for(int sigma=0; sigma<number_of_shifts; sigma++)
+        {
+          numerator[sigma] *= sqrt(scaling_factor);
+          shifts[sigma] *= scaling_factor;
+        }
 
         qpb_spinor_field yMS[number_of_shifts];
         for(int sigma=0; sigma<number_of_shifts; sigma++)
@@ -338,7 +346,7 @@ qpb_overlap_kl(qpb_spinor_field y, qpb_spinor_field x, \
         qpb_mscongrad(yMS, x, ov_params.gauge_ptr, ov_params.clover, kappa,\
                   number_of_shifts, shifts, ov_params.c_sw, epsilon, max_iter);
 
-        qpb_complex coeff = {1./9., 0.};
+        qpb_complex coeff = {1./9./sqrt(scaling_factor), 0.};
         qpb_spinor_ax(sum, coeff, x);
         for(int sigma=0; sigma<number_of_shifts; sigma++)
         {
