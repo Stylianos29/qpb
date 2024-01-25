@@ -14,12 +14,15 @@
 #include <qpb_kl_defs.h>
 #include <qpb_mscongrad.h>
 
-#define OVERLAP_NUMB_TEMP_VECS 3
-#define CG_NUMB_TEMP_VECS 3
+#define OVERLAP_NUMB_TEMP_VECS 15
+#define CG_NUMB_TEMP_VECS 13
+
+#define MSCG_NUMB_TEMP_VECS 10
 
 
 static qpb_spinor_field ov_temp_vecs[OVERLAP_NUMB_TEMP_VECS];
 static qpb_spinor_field cg_temp_vecs[CG_NUMB_TEMP_VECS];
+static qpb_spinor_field mscg_temp_vecs[MSCG_NUMB_TEMP_VECS];
 static qpb_overlap_params ov_params;
 static qpb_double scaling_factor;
 
@@ -40,6 +43,12 @@ qpb_overlap_kl_init(void * gauge, qpb_clover_term clover, qpb_double rho,\
     {
       cg_temp_vecs[i] = qpb_spinor_field_init();
       qpb_spinor_field_set_zero(cg_temp_vecs[i]);
+    }
+      
+    for(int i=0; i<MSCG_NUMB_TEMP_VECS; i++)
+    {
+      mscg_temp_vecs[i] = qpb_spinor_field_init();
+      qpb_spinor_field_set_zero(mscg_temp_vecs[i]);
     }
 
     qpb_gauge_field gauge_bc;
@@ -107,7 +116,10 @@ qpb_overlap_kl_finalize()
   
   for(int i=0; i<CG_NUMB_TEMP_VECS; i++)
     qpb_spinor_field_finalize(cg_temp_vecs[i]);
-  
+
+  for(int i=0; i<MSCG_NUMB_TEMP_VECS; i++)
+    qpb_spinor_field_finalize(mscg_temp_vecs[i]);
+
   if(which_dslash_op == QPB_DSLASH_STANDARD)
     qpb_gauge_field_finalize(*(qpb_gauge_field *)ov_params.gauge_ptr);
   
@@ -151,6 +163,28 @@ A_op(qpb_spinor_field z, qpb_spinor_field x)
   qpb_complex three = {3.0,0.0};
   qpb_spinor_axpy(z, three, y, x);
   
+  return;
+}
+
+
+INLINE void
+XdaggerX_plus_shift_op(qpb_spinor_field z, qpb_spinor_field x, qpb_double shift)
+{
+  qpb_spinor_field y = ov_temp_vecs[0];
+  
+  void *dslash_args[4];
+  
+  dslash_args[0] = ov_params.gauge_ptr;
+  dslash_args[1] = &ov_params.m_bare;
+  dslash_args[2] = &ov_params.clover;
+  dslash_args[3] = &ov_params.c_sw;
+
+  ov_params.g5_dslash_op(z, x, dslash_args);
+  ov_params.g5_dslash_op(y, z, dslash_args);
+  
+  qpb_complex complex_shift = {shift, 0.0};
+  qpb_spinor_axpy(z, complex_shift, x, y);
+
   return;
 }
 
@@ -250,6 +284,10 @@ qpb_overlap_kl(qpb_spinor_field y, qpb_spinor_field x, \
 
   qpb_spinor_field z = ov_temp_vecs[1];
   qpb_spinor_field w = ov_temp_vecs[2];
+  qpb_spinor_field sum = ov_temp_vecs[3];
+  qpb_spinor_field temp = ov_temp_vecs[4];
+
+
   qpb_spinor_field_set_zero(z);
 
   switch(kl_class)
@@ -275,6 +313,59 @@ qpb_overlap_kl(qpb_spinor_field y, qpb_spinor_field x, \
         qpb_complex a = {factor*rho, 0.0};
 
         qpb_spinor_ax(y,a,w);
+      }
+      else if(kl_iters == 2)
+      {
+        int n_echo = 100;
+        int number_of_shifts = 4;
+
+        qpb_mscongrad_init(number_of_shifts);
+
+        qpb_double numerator[] = {0.22913137869461408420, 0.29629629629629629630, 0.53783925010249025994, 1.8996960378695623225};
+        qpb_double shifts[] = {0.031091204125763378918, 0.33333333333333333333, 1.4202766254612061697, 7.5486321704130304514};
+
+        qpb_spinor_field yMS[number_of_shifts];
+        for(int sigma=0; sigma<number_of_shifts; sigma++)
+        {
+          yMS[sigma] = mscg_temp_vecs[sigma];
+          // It needs to re-initialized to 0 with every call of the function
+      	  qpb_spinor_field_set_zero(yMS[sigma]);
+        }
+
+        qpb_double mass = ov_params.m_bare; // Kernel operator bare mass
+        qpb_double kappa = 1./(2*mass+8.);
+
+        qpb_mscongrad(yMS, x, ov_params.gauge_ptr, ov_params.clover, kappa,\
+                  number_of_shifts, shifts, ov_params.c_sw, epsilon, max_iter);
+
+        qpb_complex coeff = {1./9., 0.};
+        qpb_spinor_ax(sum, coeff, x);
+        for(int sigma=0; sigma<number_of_shifts; sigma++)
+        {
+          qpb_complex coeff = {numerator[sigma], 0.};
+          qpb_spinor_axpy(sum, coeff, yMS[sigma], sum);
+        }
+
+        qpb_double b_norm, yMS_norm = 0.;
+        qpb_spinor_xdotx(&b_norm, x);
+        print("b_norm= %e\n ", b_norm);
+        for(int sigma=0; sigma<number_of_shifts; sigma++)
+        {
+          XdaggerX_plus_shift_op(y, yMS[sigma], shifts[sigma]);
+          qpb_spinor_xmy(temp, y, x);
+          qpb_spinor_xdotx(&yMS_norm, temp);
+          print(" \t (y[%d]-b_norm)/b_norm = %e\n", sigma, yMS_norm/b_norm);
+        }
+
+        D_op(z, sum);
+        
+        qpb_complex m_term = {1.0+mass_tilde/rho, 0.0};
+        qpb_spinor_axpy(w, m_term, x, z);
+        /* Remove the "tilde": multiply by rho and "factor" */
+        qpb_complex a = {factor*rho, 0.0};
+        qpb_spinor_ax(y, a, w);
+
+        qpb_mscongrad_finalize(number_of_shifts);
       }
       else
       {
