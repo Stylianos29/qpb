@@ -18,3 +18,8 @@ testprogs/source_rms/source_rms
 *.o
 *.d
 *.*~
+install/
+Makefile.in.CYCLONE
+mainprogs/overlap-kl/ginsparg-wilson-relation/run.sh
+mainprogs/overlap-kl/ginsparg-wilson-relation/log_files
+mainprogs/overlap-kl/ginsparg-wilson-relation/params_files
