@@ -12,18 +12,20 @@
 #include <qpb_dslash_wrappers.h>
 #include <qpb_stop_watch.h>
 #include <qpb_kl_defs.h>
+#include <qpb_mscongrad.h>
 
 #define OVERLAP_NUMB_TEMP_VECS 3
 #define CG_NUMB_TEMP_VECS 3
 
+
 static qpb_spinor_field ov_temp_vecs[OVERLAP_NUMB_TEMP_VECS];
 static qpb_spinor_field cg_temp_vecs[CG_NUMB_TEMP_VECS];
 static qpb_overlap_params ov_params;
-
+static qpb_double scaling_factor;
 
 void
 qpb_overlap_kl_init(void * gauge, qpb_clover_term clover, qpb_double rho,\
-                                               qpb_double c_sw, qpb_double mass)
+                                qpb_double c_sw, qpb_double mass, qpb_double mu)
 {
   if(ov_params.initialized != QPB_OVERLAP_INITIALIZED)
   {
@@ -88,6 +90,8 @@ qpb_overlap_kl_init(void * gauge, qpb_clover_term clover, qpb_double rho,\
       break;
     }
     ov_params.initialized = QPB_OVERLAP_INITIALIZED;
+
+    scaling_factor = mu;
   }
 	
   return;
@@ -271,13 +275,13 @@ qpb_overlap_kl(qpb_spinor_field y, qpb_spinor_field x, \
         qpb_complex a = {factor*rho, 0.0};
 
         qpb_spinor_ax(y,a,w);
-        }
-        else
-        {
-          error(" Error in: %s, only one iteration currently implemented\n",\
-                                                                      __func__);
-          exit(QPB_NOT_IMPLEMENTED_ERROR); 	
-        }
+      }
+      else
+      {
+        error(" Error in: %s, only one iteration currently implemented\n",\
+                                                                    __func__);
+        exit(QPB_NOT_IMPLEMENTED_ERROR); 	
+      }
       break;
     default:
       error(" Error in: %s, only KL11 currently implemented\n", __func__);

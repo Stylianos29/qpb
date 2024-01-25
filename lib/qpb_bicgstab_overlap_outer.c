@@ -37,7 +37,8 @@ qpb_bicgstab_overlap_outer_init(void * gauge, qpb_clover_term clover,
       qpb_spinor_field_set_zero(bicgstab_temp_vecs[i]);
     }
   // qpb_comm_halo_spinor_field_init();
-  qpb_overlap_kl_init(gauge, clover, rho, c_sw, mass);
+  qpb_double mu = 1.;
+  qpb_overlap_kl_init(gauge, clover, rho, c_sw, mass, mu);
   ov_params.clover = clover;
   ov_params.gauge_ptr = gauge;
   ov_params.rho = rho;
