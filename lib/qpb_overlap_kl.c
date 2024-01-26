@@ -16,7 +16,7 @@
 #include <math.h>
 
 
-#define OVERLAP_NUMB_TEMP_VECS 15
+#define OVERLAP_NUMB_TEMP_VECS 5
 #define CG_NUMB_TEMP_VECS 13
 
 #define MSCG_NUMB_TEMP_VECS 10
@@ -276,13 +276,53 @@ qpb_congrad_1p3A(qpb_spinor_field x, qpb_spinor_field b, qpb_double epsilon,\
 
 
 void
-qpb_gamma5_overlap_kl(qpb_spinor_field y, qpb_spinor_field x, \
-  enum qpb_kl_classes kl_class, int kl_iters, qpb_double epsilon, int max_iter)
+qpb_gamma5_sign_function_partial_fractions(qpb_spinor_field y, qpb_spinor_field x,\
+      qpb_complex constant_term, qpb_double* numerators, qpb_double* shifts,\
+        int number_of_terms, qpb_double epsilon, int max_iter)
 {
-  qpb_overlap_kl(y, x, kl_class, kl_iters, epsilon, max_iter);
-  qpb_spinor_gamma5(y, y);
+  qpb_spinor_field sum = ov_temp_vecs[1];
+  qpb_spinor_field vector_diff = ov_temp_vecs[2];
 
-  return;
+  int n_echo = 100;
+
+  qpb_mscongrad_init(number_of_terms);
+
+  qpb_spinor_field yMS[number_of_terms];
+  for(int sigma=0; sigma<number_of_terms; sigma++)
+  {
+    yMS[sigma] = mscg_temp_vecs[sigma];
+    // It needs to re-initialized to 0 with every call of the function
+    qpb_spinor_field_set_zero(yMS[sigma]);
+  }
+
+  qpb_double kernel_mass = ov_params.m_bare; // Kernel operator bare mass
+  qpb_double kappa = 1./(2*kernel_mass+8.);
+
+  qpb_mscongrad(yMS, x, ov_params.gauge_ptr, ov_params.clover, kappa,\
+                  number_of_terms, shifts, ov_params.c_sw, epsilon, max_iter);
+
+  qpb_spinor_ax(sum, constant_term, x);
+  for(int sigma=0; sigma<number_of_terms; sigma++)
+  {
+    qpb_complex complex_numerator = {numerators[sigma], 0.};
+    qpb_spinor_axpy(sum, complex_numerator, yMS[sigma], sum);
+  }
+
+  // Testing results
+  qpb_double b_norm, yMS_norm = 0.;
+  qpb_spinor_xdotx(&b_norm, x);
+  // print("b_norm= %e\n ", b_norm);
+  for(int sigma=0; sigma<number_of_terms; sigma++)
+  {
+    XdaggerX_plus_shift_op(y, yMS[sigma], shifts[sigma]);
+    qpb_spinor_xmy(vector_diff, y, x);
+    qpb_spinor_xdotx(&yMS_norm, vector_diff);
+    print(" \t (||y[%d]-b||)/||b|| = %e\n", sigma, yMS_norm/b_norm);
+  }
+
+  D_op(y, sum);
+
+  qpb_mscongrad_finalize(number_of_terms);
 }
 
 
@@ -290,148 +330,63 @@ void
 qpb_overlap_kl(qpb_spinor_field y, qpb_spinor_field x, \
   enum qpb_kl_classes kl_class, int kl_iters, qpb_double epsilon, int max_iter)
 {
-  qpb_double mass = ov_params.mass;
+  qpb_double overlap_mass = ov_params.mass;
   qpb_double rho = ov_params.rho;
-  qpb_double factor = (1-mass/(2*rho));
-  qpb_double mass_tilde = mass/factor;
 
-  qpb_spinor_field z = ov_temp_vecs[1];
-  qpb_spinor_field w = ov_temp_vecs[2];
-  qpb_spinor_field sum = ov_temp_vecs[3];
-  qpb_spinor_field temp = ov_temp_vecs[4];
+  qpb_spinor_field z = ov_temp_vecs[3];
+  qpb_spinor_field w = ov_temp_vecs[4];
 
-
-  qpb_spinor_field_set_zero(z);
+  int number_of_terms = kl_iters*kl_iters;
+  qpb_complex constant_term = {0., 0.};
+  qpb_double *numerators, *shifts;
+  numerators = qpb_alloc(sizeof(qpb_double)*number_of_terms);
+  shifts = qpb_alloc(sizeof(qpb_double)*number_of_terms);
 
   switch(kl_class)
   {
     case KL_CLASS_11:
       if(kl_iters == 1)
       {
-        int n_echo = 100;
-        int number_of_shifts = 1;
+        constant_term.re = 1/3.;
+        qpb_double numerators_list[1] = {
+            8./9.
+          };
+        qpb_double shifts_list[1] = {
+            1./3.
+          };
 
-        qpb_mscongrad_init(number_of_shifts);
-
-        qpb_double numerator[] = {8./9.};
-        qpb_double shifts[] = {1./3.};
-        
-        for(int sigma=0; sigma<number_of_shifts; sigma++)
+        for(int sigma=0; sigma<number_of_terms; sigma++)
         {
-          numerator[sigma] *= sqrt(scaling_factor);
-          shifts[sigma] *= scaling_factor;
+          numerators[sigma] = numerators_list[sigma];
+          shifts[sigma] = shifts_list[sigma];
         }
-
-        qpb_spinor_field yMS[number_of_shifts];
-        for(int sigma=0; sigma<number_of_shifts; sigma++)
-        {
-          yMS[sigma] = mscg_temp_vecs[sigma];
-          // It needs to re-initialized to 0 with every call of the function
-      	  qpb_spinor_field_set_zero(yMS[sigma]);
-        }
-
-        qpb_double mass = ov_params.m_bare; // Kernel operator bare mass
-        qpb_double kappa = 1./(2*mass+8.);
-
-        qpb_mscongrad(yMS, x, ov_params.gauge_ptr, ov_params.clover, kappa,\
-                  number_of_shifts, shifts, ov_params.c_sw, epsilon, max_iter);
-
-        qpb_double c0 = 1/3.;
-
-        qpb_complex coeff = {c0/sqrt(scaling_factor), 0.};
-        qpb_spinor_ax(sum, coeff, x);
-        for(int sigma=0; sigma<number_of_shifts; sigma++)
-        {
-          qpb_complex complex_numerator = {numerator[sigma], 0.};
-          qpb_spinor_axpy(sum, complex_numerator, yMS[sigma], sum);
-        }
-
-        // Testing results
-        qpb_double b_norm, yMS_norm = 0.;
-        qpb_spinor_xdotx(&b_norm, x);
-        // print("b_norm= %e\n ", b_norm);
-        for(int sigma=0; sigma<number_of_shifts; sigma++)
-        {
-          XdaggerX_plus_shift_op(y, yMS[sigma], shifts[sigma]);
-          qpb_spinor_xmy(temp, y, x);
-          qpb_spinor_xdotx(&yMS_norm, temp);
-          print(" \t (||y[%d]-b||)/||b|| = %e\n", sigma, yMS_norm/b_norm);
-        }
-
-        D_op(z, sum);
-        
-        qpb_complex m_term = {1.0+mass_tilde/rho, 0.0};
-        qpb_spinor_axpy(w, m_term, x, z);
-        /* Remove the "tilde": multiply by rho and "factor" */
-        qpb_complex a = {factor*rho, 0.0};
-        qpb_spinor_ax(y, a, w);
-
-        qpb_mscongrad_finalize(number_of_shifts);
       }
       else if(kl_iters == 2)
       {
-        int n_echo = 100;
-        int number_of_shifts = 4;
-
-        qpb_mscongrad_init(number_of_shifts);
-
-        qpb_double numerator[] = {0.22913137869461408420, 0.29629629629629629630, 0.53783925010249025994, 1.8996960378695623225};
-        qpb_double shifts[] = {0.031091204125763378918, 0.33333333333333333333, 1.4202766254612061697, 7.5486321704130304514};
-        
-        for(int sigma=0; sigma<number_of_shifts; sigma++)
+        constant_term.re = 1/9.;
+        qpb_double numerators_list[4] = {
+            0.22913137869461408420,
+            0.29629629629629629630,
+            0.53783925010249025994,
+            1.8996960378695623225
+          };
+        qpb_double shifts_list[4] = {
+            0.031091204125763378918,
+            0.33333333333333333333,
+            1.4202766254612061697,
+            7.5486321704130304514
+          };
+      
+        for(int sigma=0; sigma<number_of_terms; sigma++)
         {
-          numerator[sigma] *= sqrt(scaling_factor);
-          shifts[sigma] *= scaling_factor;
+          numerators[sigma] = numerators_list[sigma];
+          shifts[sigma] = shifts_list[sigma];
         }
-
-        qpb_spinor_field yMS[number_of_shifts];
-        for(int sigma=0; sigma<number_of_shifts; sigma++)
-        {
-          yMS[sigma] = mscg_temp_vecs[sigma];
-          // It needs to re-initialized to 0 with every call of the function
-      	  qpb_spinor_field_set_zero(yMS[sigma]);
-        }
-
-        qpb_double mass = ov_params.m_bare; // Kernel operator bare mass
-        qpb_double kappa = 1./(2*mass+8.);
-
-        qpb_mscongrad(yMS, x, ov_params.gauge_ptr, ov_params.clover, kappa,\
-                  number_of_shifts, shifts, ov_params.c_sw, epsilon, max_iter);
-
-        qpb_complex coeff = {1./9./sqrt(scaling_factor), 0.};
-        qpb_spinor_ax(sum, coeff, x);
-        for(int sigma=0; sigma<number_of_shifts; sigma++)
-        {
-          qpb_complex complex_numerator = {numerator[sigma], 0.};
-          qpb_spinor_axpy(sum, complex_numerator, yMS[sigma], sum);
-        }
-
-        // Testing results
-        qpb_double b_norm, yMS_norm = 0.;
-        qpb_spinor_xdotx(&b_norm, x);
-        // print("b_norm= %e\n ", b_norm);
-        for(int sigma=0; sigma<number_of_shifts; sigma++)
-        {
-          XdaggerX_plus_shift_op(y, yMS[sigma], shifts[sigma]);
-          qpb_spinor_xmy(temp, y, x);
-          qpb_spinor_xdotx(&yMS_norm, temp);
-          print(" \t (||y[%d]-b||)/||b|| = %e\n", sigma, yMS_norm/b_norm);
-        }
-
-        D_op(z, sum);
-        
-        qpb_complex m_term = {1.0+mass_tilde/rho, 0.0};
-        qpb_spinor_axpy(w, m_term, x, z);
-        /* Remove the "tilde": multiply by rho and "factor" */
-        qpb_complex a = {factor*rho, 0.0};
-        qpb_spinor_ax(y, a, w);
-
-        qpb_mscongrad_finalize(number_of_shifts);
       }
       else
       {
         error(" Error in: %s, only one iteration currently implemented\n",\
-                                                                    __func__);
+                                                                      __func__);
         exit(QPB_NOT_IMPLEMENTED_ERROR); 	
       }
       break;
@@ -440,6 +395,33 @@ qpb_overlap_kl(qpb_spinor_field y, qpb_spinor_field x, \
       exit(QPB_NOT_IMPLEMENTED_ERROR);
       break;
   }
+
+  print("constant_term.re %.3lf\n", constant_term.re);
+  print("number_of_terms %d\n", number_of_terms);
+  print("Values pointed by the pointer:\n");
+  for(int sigma=0; sigma<number_of_terms; sigma++)
+    print("numerators[%d] = %.4lf, shifts[%d] = %.4lf\n", sigma, numerators[sigma], sigma, shifts[sigma]);
+  print("\n");
+
+  // Modify the numerical terms of the partial fraction expression
+  constant_term.re *= 1/sqrt(scaling_factor);
+  for(int sigma=0; sigma<number_of_terms; sigma++)
+  {
+    numerators[sigma] *= sqrt(scaling_factor);
+    shifts[sigma] *= scaling_factor;
+  }
+
+  qpb_gamma5_sign_function_partial_fractions(z, x, constant_term,\
+                        numerators, shifts, number_of_terms, epsilon, max_iter);
+
+  free(numerators);
+  free(shifts);
+
+  /* Implementing (rho+overlap_mass/2)*x + (rho-overlap_mass/2)*g5(sign(X)) */
+  qpb_complex a = {rho + 0.5*overlap_mass, 0.};
+  qpb_complex b = {rho - 0.5*overlap_mass, 0.};
+
+  qpb_spinor_axpby(y, a, x, b, z);
 
   return;
 }
