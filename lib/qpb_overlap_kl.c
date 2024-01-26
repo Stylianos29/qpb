@@ -69,7 +69,7 @@ qpb_overlap_kl_init(void * gauge, qpb_clover_term clover, qpb_double rho,\
 
     ov_params.c_sw = c_sw;
     ov_params.rho = rho;
-    ov_params.m_bare = -rho;
+    ov_params.m_bare = -rho; // Kernel operator bare mass
     ov_params.mass = mass;
     ov_params.clover = clover;
     
@@ -276,6 +276,17 @@ qpb_congrad_1p3A(qpb_spinor_field x, qpb_spinor_field b, qpb_double epsilon,\
 
 
 void
+qpb_gamma5_overlap_kl(qpb_spinor_field y, qpb_spinor_field x, \
+  enum qpb_kl_classes kl_class, int kl_iters, qpb_double epsilon, int max_iter)
+{
+  qpb_overlap_kl(y, x, kl_class, kl_iters, epsilon, max_iter);
+  qpb_spinor_gamma5(y, y);
+
+  return;
+}
+
+
+void
 qpb_overlap_kl(qpb_spinor_field y, qpb_spinor_field x, \
   enum qpb_kl_classes kl_class, int kl_iters, qpb_double epsilon, int max_iter)
 {
@@ -298,23 +309,64 @@ qpb_overlap_kl(qpb_spinor_field y, qpb_spinor_field x, \
       if(kl_iters == 1)
       {
         int n_echo = 100;
+        int number_of_shifts = 1;
 
-        /* Compute z = [1+3*A]^-1 x */
-        qpb_congrad_1p3A(z, x, epsilon, max_iter, n_echo);
-        /* Multiply by 8 and add 1: 8*y+1 */
-        qpb_complex eight = {8.0, 0.0};
-        qpb_spinor_axpy(w,eight,z,x);
-        /* Apply the kernel */
-        D_op(z,w);
+        qpb_mscongrad_init(number_of_shifts);
 
-        /* Mutiply by 1/3 and add mass-term */
-        qpb_complex one_third = {1.0/3.0, 0.0};
+        qpb_double numerator[] = {8./9.};
+        qpb_double shifts[] = {1./3.};
+        
+        for(int sigma=0; sigma<number_of_shifts; sigma++)
+        {
+          numerator[sigma] *= sqrt(scaling_factor);
+          shifts[sigma] *= scaling_factor;
+        }
+
+        qpb_spinor_field yMS[number_of_shifts];
+        for(int sigma=0; sigma<number_of_shifts; sigma++)
+        {
+          yMS[sigma] = mscg_temp_vecs[sigma];
+          // It needs to re-initialized to 0 with every call of the function
+      	  qpb_spinor_field_set_zero(yMS[sigma]);
+        }
+
+        qpb_double mass = ov_params.m_bare; // Kernel operator bare mass
+        qpb_double kappa = 1./(2*mass+8.);
+
+        qpb_mscongrad(yMS, x, ov_params.gauge_ptr, ov_params.clover, kappa,\
+                  number_of_shifts, shifts, ov_params.c_sw, epsilon, max_iter);
+
+        qpb_double c0 = 1/3.;
+
+        qpb_complex coeff = {c0/sqrt(scaling_factor), 0.};
+        qpb_spinor_ax(sum, coeff, x);
+        for(int sigma=0; sigma<number_of_shifts; sigma++)
+        {
+          qpb_complex complex_numerator = {numerator[sigma], 0.};
+          qpb_spinor_axpy(sum, complex_numerator, yMS[sigma], sum);
+        }
+
+        // Testing results
+        qpb_double b_norm, yMS_norm = 0.;
+        qpb_spinor_xdotx(&b_norm, x);
+        // print("b_norm= %e\n ", b_norm);
+        for(int sigma=0; sigma<number_of_shifts; sigma++)
+        {
+          XdaggerX_plus_shift_op(y, yMS[sigma], shifts[sigma]);
+          qpb_spinor_xmy(temp, y, x);
+          qpb_spinor_xdotx(&yMS_norm, temp);
+          print(" \t (||y[%d]-b||)/||b|| = %e\n", sigma, yMS_norm/b_norm);
+        }
+
+        D_op(z, sum);
+        
         qpb_complex m_term = {1.0+mass_tilde/rho, 0.0};
-        qpb_spinor_axpby(w,one_third,z,m_term,x);
+        qpb_spinor_axpy(w, m_term, x, z);
         /* Remove the "tilde": multiply by rho and "factor" */
         qpb_complex a = {factor*rho, 0.0};
+        qpb_spinor_ax(y, a, w);
 
-        qpb_spinor_ax(y,a,w);
+        qpb_mscongrad_finalize(number_of_shifts);
       }
       else if(kl_iters == 2)
       {
@@ -350,13 +402,14 @@ qpb_overlap_kl(qpb_spinor_field y, qpb_spinor_field x, \
         qpb_spinor_ax(sum, coeff, x);
         for(int sigma=0; sigma<number_of_shifts; sigma++)
         {
-          qpb_complex coeff = {numerator[sigma], 0.};
-          qpb_spinor_axpy(sum, coeff, yMS[sigma], sum);
+          qpb_complex complex_numerator = {numerator[sigma], 0.};
+          qpb_spinor_axpy(sum, complex_numerator, yMS[sigma], sum);
         }
 
+        // Testing results
         qpb_double b_norm, yMS_norm = 0.;
         qpb_spinor_xdotx(&b_norm, x);
-        print("b_norm= %e\n ", b_norm);
+        // print("b_norm= %e\n ", b_norm);
         for(int sigma=0; sigma<number_of_shifts; sigma++)
         {
           XdaggerX_plus_shift_op(y, yMS[sigma], shifts[sigma]);
