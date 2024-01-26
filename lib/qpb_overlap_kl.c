@@ -261,7 +261,7 @@ qpb_congrad_1p3A(qpb_spinor_field x, qpb_spinor_field b, qpb_double epsilon,\
   if(iters==max_iter)
   {
     error(" !\n");
-    error(" CG *did not* converge, after %d iterrations\n", iters);
+    error(" CG *did not* converge, after %d iterations\n", iters);
     error(" residual = %e, relative = %e, t = %g secs\n", res_norm,\
                                                         res_norm / b_norm, t);
     error(" !\n");
@@ -362,7 +362,7 @@ qpb_overlap_kl(qpb_spinor_field y, qpb_spinor_field x, \
           XdaggerX_plus_shift_op(y, yMS[sigma], shifts[sigma]);
           qpb_spinor_xmy(temp, y, x);
           qpb_spinor_xdotx(&yMS_norm, temp);
-          print(" \t (y[%d]-b_norm)/b_norm = %e\n", sigma, yMS_norm/b_norm);
+          print(" \t (||y[%d]-b||)/||b|| = %e\n", sigma, yMS_norm/b_norm);
         }
 
         D_op(z, sum);
