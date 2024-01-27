@@ -238,7 +238,7 @@ qpb_extreme_eigenvalues_of_H_squared(qpb_double *min_eigv, \
 void
 qpb_overlap_Chebyshev_init(void *gauge, qpb_clover_term clover, qpb_double rho,\
     qpb_double c_sw, qpb_double mass, qpb_double epsilon, int max_iters, \
-      int N_Cheb)
+      int N_Cheb, qpb_double delta_max, qpb_double delta_min)
 {
   if(ov_params.initialized != QPB_OVERLAP_INITIALIZED)
   {
@@ -320,8 +320,8 @@ qpb_overlap_Chebyshev_init(void *gauge, qpb_clover_term clover, qpb_double rho,\
       epsilon, max_iters);
     /* And then their square root value is stored inside the 'min_eigv' and
     'max_eigv' attributes of the 'ov_params' struct. */
-    ov_params.min_eigv = sqrt(min_eigv_squared);
-    ov_params.max_eigv = sqrt(max_eigv_squared);
+    ov_params.min_eigv = sqrt(min_eigv_squared*delta_min);
+    ov_params.max_eigv = sqrt(max_eigv_squared*delta_max);
 
     // Standard case
     // ov_params.min_eigv = 0.027028;

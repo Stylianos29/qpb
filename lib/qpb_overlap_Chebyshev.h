@@ -6,7 +6,8 @@
 
 void qpb_overlap_Chebyshev(qpb_spinor_field, qpb_spinor_field);
 
-void qpb_overlap_Chebyshev_init(void *, qpb_clover_term, qpb_double, qpb_double, qpb_double, qpb_double, int, int);
+void qpb_overlap_Chebyshev_init(void *, qpb_clover_term, qpb_double,\
+        qpb_double, qpb_double, qpb_double, int, int, qpb_double, qpb_double);
 void qpb_overlap_Chebyshev_finalize();
 
 #endif /* _QPB_OVERLAP_CHEBYSHEV_H */
