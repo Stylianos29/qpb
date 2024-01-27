@@ -18,3 +18,10 @@ testprogs/source_rms/source_rms
 *.o
 *.d
 *.*~
+install/
+Makefile.in.CYCLONE
+mainprogs/overlap-Chebyshev/ginsparg-wilson-relation/run.sh
+mainprogs/overlap-Chebyshev/ginsparg-wilson-relation/_params.ini_
+mainprogs/overlap-Chebyshev/ginsparg-wilson-relation/log_files/
+mainprogs/overlap-Chebyshev/ginsparg-wilson-relation/params_files/
+mainprogs/overlap-Chebyshev/ginsparg-wilson-relation/ginsparg-wilson-relation
