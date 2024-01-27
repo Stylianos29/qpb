@@ -425,7 +425,8 @@ main(int argc, char *argv[])
   diffs = qpb_alloc(sizeof(qpb_double)*n_vec);
 
   qpb_double t = qpb_stop_watch(0);
-  qpb_overlap_Chebyshev_init(solver_arg_links, clover_term, rho, c_sw, mass, epsilon, max_iters, N_Cheb);
+  qpb_overlap_Chebyshev_init(solver_arg_links, clover_term, rho, c_sw, mass,\
+                              epsilon, max_iters, N_Cheb, delta_max, delta_min);
   qpb_double t1 = qpb_stop_watch(t);
 
   for(int i=0; i<n_vec; i++)
