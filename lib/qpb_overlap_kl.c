@@ -309,6 +309,7 @@ qpb_gamma5_sign_function_partial_fractions(qpb_spinor_field y, qpb_spinor_field 
   }
 
   // Testing results
+  print("\tTesting multi-sift solver results:\n");
   qpb_double b_norm, yMS_norm = 0.;
   qpb_spinor_xdotx(&b_norm, x);
   // print("b_norm= %e\n ", b_norm);
@@ -319,6 +320,7 @@ qpb_gamma5_sign_function_partial_fractions(qpb_spinor_field y, qpb_spinor_field 
     qpb_spinor_xdotx(&yMS_norm, vector_diff);
     print(" \t (||y[%d]-b||)/||b|| = %e\n", sigma, yMS_norm/b_norm);
   }
+  print("\n");
 
   D_op(y, sum);
 
@@ -608,12 +610,12 @@ qpb_overlap_kl(qpb_spinor_field y, qpb_spinor_field x, \
       break;
   }
 
-  print("constant_term.re %.3lf\n", constant_term.re);
-  print("number_of_terms %d\n", number_of_terms);
-  print("Values pointed by the pointer:\n");
-  for(int sigma=0; sigma<number_of_terms; sigma++)
-    print("numerators[%d] = %.4lf, shifts[%d] = %.4lf\n", sigma, numerators[sigma], sigma, shifts[sigma]);
-  print("\n");
+  // print("constant_term.re %.3lf\n", constant_term.re);
+  // print("number_of_terms %d\n", number_of_terms);
+  // print("Values pointed by the pointer:\n");
+  // for(int sigma=0; sigma<number_of_terms; sigma++)
+  //   print("numerators[%d] = %.4lf, shifts[%d] = %.4lf\n", sigma, numerators[sigma], sigma, shifts[sigma]);
+  // print("\n");
 
   // Modify the numerical terms of the partial fraction expression
   constant_term.re *= 1/sqrt(scaling_factor);

@@ -394,6 +394,7 @@ main(int argc, char *argv[])
     {
       qpb_gauge_field_copy(apegauge, gauge);
     }
+  print("\n");
 
   /* Shift it */
   qpb_gauge_field_shift(apegauge, shifts);
