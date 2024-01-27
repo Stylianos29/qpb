@@ -256,6 +256,20 @@ main(int argc, char *argv[])
       timebc = 1;
     }
 
+  qpb_double delta_max;
+  if(sscanf(qpb_parse("Max eigenvalue modification"), "%lf", &delta_max)!=1)
+    {
+      error("error parsing for %s\n", "Max eigenvalue modification");
+      exit(QPB_PARSER_ERROR);
+    }
+
+  qpb_double delta_min;
+  if(sscanf(qpb_parse("Min eigenvalue modification"), "%lf", &delta_min)!=1)
+    {
+      error("error parsing for %s\n", "Min eigenvalue modification");
+      exit(QPB_PARSER_ERROR);
+    }
+
   qpb_finalize_parser();
 
   /* initialize cartesian grid and index tables */
@@ -421,15 +435,15 @@ main(int argc, char *argv[])
       qpb_spinor_field Dg5x = temp_vecs[2];
       qpb_spinor_field Dg5Dx = temp_vecs[3];
       /* Compute g5D on eta */
-      qpb_massless_overlap_Chebyshev(g5Dx, eta[i]);
+      qpb_overlap_Chebyshev(g5Dx, eta[i]);
       qpb_spinor_gamma5(g5Dx, g5Dx);
 
       /* Compute Dg5 on eta */
       qpb_spinor_gamma5(g5x, eta[i]);
-      qpb_massless_overlap_Chebyshev(Dg5x, g5x);
+      qpb_overlap_Chebyshev(Dg5x, g5x);
 
       /* Compute Dg5D on eta */
-      qpb_massless_overlap_Chebyshev(Dg5Dx, g5Dx);
+      qpb_overlap_Chebyshev(Dg5Dx, g5Dx);
       qpb_spinor_field x = temp_vecs[4];
       qpb_spinor_xpy(x, Dg5x, g5Dx);
       qpb_spinor_xmy(x, x, Dg5Dx);
