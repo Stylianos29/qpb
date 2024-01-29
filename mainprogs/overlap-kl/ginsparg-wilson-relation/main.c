@@ -145,6 +145,11 @@ main(int argc, char *argv[])
 	    "KL iters");
       exit(QPB_PARSER_ERROR);
     }
+  if(kl_iters<1)
+    {
+      error("only provide positive integer values for KL iters, quiting\n");
+      exit(QPB_PARAMETERS_ERROR);
+    }
 
   qpb_double ape_alpha;
   if(sscanf(qpb_parse("APE alpha"), "%lf", &ape_alpha)!=1)
@@ -342,7 +347,7 @@ main(int argc, char *argv[])
     }
   print(" KL class = %d\n", 11);
   print(" KL iters = %d\n", kl_iters);
-  print(" Mu = %lf\n", scaling_factor);
+  print(" Mu = %.3f\n", scaling_factor);
   
   qpb_rng_init(seed);
   problem_params.timebc = timebc;
