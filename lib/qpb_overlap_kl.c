@@ -276,9 +276,9 @@ qpb_congrad_1p3A(qpb_spinor_field x, qpb_spinor_field b, qpb_double epsilon,\
 
 
 void
-qpb_gamma5_sign_function_partial_fractions(qpb_spinor_field y, qpb_spinor_field x,\
-      qpb_complex constant_term, qpb_double* numerators, qpb_double* shifts,\
-        int number_of_terms, qpb_double epsilon, int max_iter)
+qpb_gamma5_sign_function_partial_fractions(qpb_spinor_field y,\
+    qpb_spinor_field x, qpb_complex constant_term, qpb_double* numerators,\
+    qpb_double* shifts, int number_of_terms, qpb_double epsilon, int max_iter)
 {
   qpb_spinor_field sum = ov_temp_vecs[1];
   qpb_spinor_field vector_diff = ov_temp_vecs[2];
@@ -330,312 +330,48 @@ qpb_gamma5_sign_function_partial_fractions(qpb_spinor_field y, qpb_spinor_field 
 
 void
 qpb_overlap_kl(qpb_spinor_field y, qpb_spinor_field x, \
-  enum qpb_kl_classes kl_class, int kl_iters, qpb_double epsilon, int max_iter)
+  enum qpb_kl_classes kl_class, int n, qpb_double epsilon, int max_iter)
 {
+  // Calculate the numerical terms of the partial fraction expression
+
+  qpb_complex constant_term = {0., 0.};
+  qpb_double *numerators, *shifts;
+  numerators = qpb_alloc(sizeof(qpb_double)*n);
+  shifts = qpb_alloc(sizeof(qpb_double)*n);
+
+  constant_term.re = 1./(qpb_double) (2*n+1);
+  for(int i=0; i<n; i++)
+  {
+    numerators[i] = 2*constant_term.re/pow(\
+                              cos((M_PI/2.)*(2*i+1)/(qpb_double) (2*n+1)), 2);
+    shifts[i] = pow(tan((M_PI/2.)*((2*i+1)/(qpb_double) (2*n+1))), 2);
+  }
+
+  // Modify the numerical terms using the scaling parameter
+  constant_term.re *= 1/sqrt(scaling_factor);
+  for(int i=0; i<n; i++)
+  {
+    numerators[i] *= sqrt(scaling_factor);
+    shifts[i] *= scaling_factor;
+  }
+
+  /* Implementing (rho+overlap_mass/2)*x + (rho-overlap_mass/2)*g5(sign(X)) */
   qpb_double overlap_mass = ov_params.mass;
   qpb_double rho = ov_params.rho;
 
   qpb_spinor_field z = ov_temp_vecs[3];
   qpb_spinor_field w = ov_temp_vecs[4];
 
-  int number_of_terms = kl_iters;
-  qpb_complex constant_term = {0., 0.};
-  qpb_double *numerators, *shifts;
-  numerators = qpb_alloc(sizeof(qpb_double)*number_of_terms);
-  shifts = qpb_alloc(sizeof(qpb_double)*number_of_terms);
-
-  switch(kl_class)
-  {
-    case KL_CLASS_11:
-      if(kl_iters == 1)
-      {
-        constant_term.re = 1/3.;
-        qpb_double numerators_list[1] = {
-            8./9.
-          };
-        qpb_double shifts_list[1] = {
-            1./3.
-          };
-
-        for(int sigma=0; sigma<number_of_terms; sigma++)
-        {
-          numerators[sigma] = numerators_list[sigma];
-          shifts[sigma] = shifts_list[sigma];
-        }
-      }
-      else if(kl_iters == 2)
-      {
-        constant_term.re = 1/5.;
-        qpb_double numerators_list[] = {
-            0.44222912360003364857,
-            1.1577708763999663514
-          };
-        qpb_double shifts_list[] = {
-            0.10557280900008412144,
-            1.8944271909999158786
-          };
-      
-        for(int sigma=0; sigma<number_of_terms; sigma++)
-        {
-          numerators[sigma] = numerators_list[sigma];
-          shifts[sigma] = shifts_list[sigma];
-        }
-      }
-      else if(kl_iters == 3)
-      {
-        constant_term.re = 1/7.;
-        qpb_double numerators_list[] = {
-            0.30059859531476772304,
-            0.46741823027873882805,
-            1.5176974601207791632
-          };
-        qpb_double shifts_list[] = {
-            0.052095083601687030648,
-            0.63596380597558589817,
-            4.3119411104227270712
-          };
-      
-        for(int sigma=0; sigma<number_of_terms; sigma++)
-        {
-          numerators[sigma] = numerators_list[sigma];
-          shifts[sigma] = shifts_list[sigma];
-        }
-      }
-      else if(kl_iters == 4)
-      {
-        constant_term.re = 1/9.;
-        qpb_double numerators_list[] = {
-            0.22913137869461408420,
-            0.29629629629629629630,
-            0.53783925010249025994,
-            1.8996960378695623225
-          };
-        qpb_double shifts_list[] = {
-            0.031091204125763378918,
-            0.33333333333333333333,
-            1.4202766254612061697,
-            7.5486321704130304514
-          };
-      
-        for(int sigma=0; sigma<number_of_terms; sigma++)
-        {
-          numerators[sigma] = numerators_list[sigma];
-          shifts[sigma] = shifts_list[sigma];
-        }
-      }
-      else if(kl_iters == 5)
-      {
-        constant_term.re = 1/11.;
-        qpb_double numerators_list[] = {
-            0.18557676324074636002,
-            0.21973834787259300938,
-            0.31833287238571962997,
-            0.62204191302219855350,
-            2.2906737398423788108
-          };
-        qpb_double shifts_list[] = {
-            0.020672197824104980091,
-            0.20856091329926155161,
-            0.75083079812145796485,
-            2.4212305216220920442,
-            11.598705569133083459,
-          };
-      
-        for(int sigma=0; sigma<number_of_terms; sigma++)
-        {
-          numerators[sigma] = numerators_list[sigma];
-          shifts[sigma] = shifts_list[sigma];
-        }
-      }
-      else if(kl_iters == 6)
-      {
-        constant_term.re = 1/13.;
-        qpb_double numerators_list[] = {
-            0.15611435353994260274,
-            0.17597392982236238423,
-            0.22714542863054495928,
-            0.34986371891170624976,
-            0.71235747803339061515,
-            2.6862373987543608812
-          };
-        qpb_double shifts_list[] = {
-            0.014743298009626917789,
-            0.14383054384535549752,
-            0.47644528609854223532,
-            1.2741141729260906234,
-            3.6303236072170389985,
-            16.460543091903345727
-          };
-      
-        for(int sigma=0; sigma<number_of_terms; sigma++)
-        {
-          numerators[sigma] = numerators_list[sigma];
-          shifts[sigma] = shifts_list[sigma];
-        }
-      }
-      else if(kl_iters == 7)
-      {
-        constant_term.re = 1/15.;
-        qpb_double numerators_list[] = {
-            0.13480625336943768904,
-            0.14740970786667788286,
-            0.17777777777777777778,
-            0.24143032573172086909,
-            0.38592362546665545048,
-            0.80595749196400780621,
-            3.0844725956015003023
-          };
-        qpb_double shifts_list[] = {
-            0.011046900270782667770,
-            0.10557280900008412144,
-            0.33333333333333333333,
-            0.81072744298790651819,
-            1.8944271909999158786,
-            5.0446811897300585466,
-            22.133544467011252267
-          };
-
-        for(int sigma=0; sigma<number_of_terms; sigma++)
-        {
-          numerators[sigma] = numerators_list[sigma];
-          shifts[sigma] = shifts_list[sigma];
-        }
-      }
-      else if(kl_iters == 8)
-      {
-        constant_term.re = 1/17.;
-        qpb_double numerators_list[] = {
-            0.11865724133351388706,
-            0.12717108338436883050,
-            0.14681706753739316578,
-            0.18473812890939256246,
-            0.25921110065959664356,
-            0.42451813164288753546,
-            0.90154083097924087415,
-            3.4844052390830182657
-          };
-        qpb_double shifts_list[] = {
-            0.0085865513348680399778,
-            0.080954208767135059245,
-            0.24794507406784190911,
-            0.57027409572983678095,
-            1.2032943556065714702,
-            2.6084041189645440514,
-            6.6630970633235474303,
-            28.617444532205655259
-          };
-      
-        for(int sigma=0; sigma<number_of_terms; sigma++)
-        {
-          numerators[sigma] = numerators_list[sigma];
-          shifts[sigma] = shifts_list[sigma];
-        }
-      }
-      else if(kl_iters == 9)
-      {
-        constant_term.re = 1/19.;
-        qpb_double numerators_list[] = {
-            0.10598591274851813092,
-            0.11201343762014803126,
-            0.12551638278921561462,
-            0.15019405220759396259,
-            0.19446733088891556282,
-            0.27902222184129117683,
-            0.46468482484696220492,
-            0.99841992023608247221,
-            3.8854853905054833701
-          };
-        qpb_double shifts_list[] = {
-            0.0068661711109222437718,
-            0.064127657391406296998,
-            0.19240563649754833887,
-            0.42684349597214264464,
-            0.84743964344469784675,
-            1.6507111074922661799,
-            3.4145058360461409467,
-            8.4849892422427834860,
-            35.912111209802092016
-          };
-
-        for(int sigma=0; sigma<number_of_terms; sigma++)
-        {
-          numerators[sigma] = numerators_list[sigma];
-          shifts[sigma] = shifts_list[sigma];
-        }
-      }
-      else if(kl_iters == 10)
-      {
-        constant_term.re = 1/21.;
-        qpb_double numerators_list[] = {
-            0.095772947585351461082,
-            0.10019953177158924101,
-            0.10990795692403482586,
-            0.12698412698412698413,
-            0.15580607675957960935,
-            0.20586013784290496115,
-            0.30012368498535865365,
-            0.50589915337359305440,
-            1.0961950212217222820,
-            4.2873783466787230544
-          };
-        qpb_double shifts_list[] = {
-            0.0056159496461903413585,
-            0.052095083601687030648,
-            0.15403354770236567150,
-            0.33333333333333333333,
-            0.63596380597558589817,
-            1.1615314473505020921,
-            2.1512986923462658633,
-            4.3119411104227270712,
-            10.510047722828083961,
-            44.017472640126592071
-          };
-
-        for(int sigma=0; sigma<number_of_terms; sigma++)
-        {
-          numerators[sigma] = numerators_list[sigma];
-          shifts[sigma] = shifts_list[sigma];
-        }
-      }
-      else
-      {
-        error(" Error in: %s, only one iteration currently implemented\n",\
-                                                                      __func__);
-        exit(QPB_NOT_IMPLEMENTED_ERROR); 	
-      }
-      break;
-    default:
-      error(" Error in: %s, only KL11 currently implemented\n", __func__);
-      exit(QPB_NOT_IMPLEMENTED_ERROR);
-      break;
-  }
-
-  // print("constant_term.re %.3lf\n", constant_term.re);
-  // print("number_of_terms %d\n", number_of_terms);
-  // print("Values pointed by the pointer:\n");
-  // for(int sigma=0; sigma<number_of_terms; sigma++)
-  //   print("numerators[%d] = %.4lf, shifts[%d] = %.4lf\n", sigma, numerators[sigma], sigma, shifts[sigma]);
-  // print("\n");
-
-  // Modify the numerical terms of the partial fraction expression
-  constant_term.re *= 1/sqrt(scaling_factor);
-  for(int sigma=0; sigma<number_of_terms; sigma++)
-  {
-    numerators[sigma] *= sqrt(scaling_factor);
-    shifts[sigma] *= scaling_factor;
-  }
-
   qpb_gamma5_sign_function_partial_fractions(z, x, constant_term,\
-                        numerators, shifts, number_of_terms, epsilon, max_iter);
+                        numerators, shifts, n, epsilon, max_iter);
 
-  free(numerators);
-  free(shifts);
-
-  /* Implementing (rho+overlap_mass/2)*x + (rho-overlap_mass/2)*g5(sign(X)) */
   qpb_complex a = {rho + 0.5*overlap_mass, 0.};
   qpb_complex b = {rho - 0.5*overlap_mass, 0.};
 
   qpb_spinor_axpby(y, a, x, b, z);
+
+  free(numerators);
+  free(shifts);
 
   return;
 }
