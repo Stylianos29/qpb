@@ -320,21 +320,21 @@ qpb_overlap_Chebyshev_init(void *gauge, qpb_clover_term clover, qpb_double rho,\
       epsilon, max_iters);
     /* And then their square root value is stored inside the 'min_eigv' and
     'max_eigv' attributes of the 'ov_params' struct. */
-    ov_params.min_eigv = sqrt(min_eigv_squared*delta_min);
-    ov_params.max_eigv = sqrt(max_eigv_squared*delta_max);
+    ov_params.min_eigv = sqrt(min_eigv_squared)*delta_min;
+    ov_params.max_eigv = sqrt(max_eigv_squared)*delta_max;
 
     // Standard case
-    // ov_params.min_eigv = 0.027028;
-    // ov_params.max_eigv = 6.944426;
+    // ov_params.min_eigv = 0.0270280534702002*delta_min;
+    // ov_params.max_eigv = 6.9444256579015331*delta_max;
     
     // Brillouin case
-    // ov_params.min_eigv = 0.007769;
-    // ov_params.max_eigv = 1.721481;
+    // ov_params.min_eigv = 0.0077694754090073*delta_min;
+    // ov_params.max_eigv = 1.7214812823042396*delta_max;
 
-    print("Extrema of the eigenvalues spectrum:\n\
-                        \t\talpha = %.8f, beta = %.8f\n",\
-                                ov_params.min_eigv, ov_params.max_eigv);
-
+    print("\tExtrema of the eigenvalues spectrum:\n\
+              \talpha = %.16f, beta = %.16f\n",\
+                                      ov_params.min_eigv, ov_params.max_eigv);
+    print("\n");
 
     /* ----------------------- expansion coefficients ----------------------- */
 
