@@ -372,17 +372,20 @@ main(int argc, char *argv[])
   /* APE smear the gauge field */
   qpb_gauge_field apegauge = qpb_gauge_field_init();
   if(ape_niter != 0)
-    {
-      print(" APE smear gauge field...\n");
-      qpb_apesmear_niter(apegauge, gauge, ape_alpha, ape_niter);
+  {
+    print(" APE smear gauge field...\n");
+    qpb_apesmear_niter(apegauge, gauge, ape_alpha, ape_niter);
 
-      plaquette = qpb_plaquette(apegauge);
-      print(" Plaquette = %12.8f\n", plaquette);
-    }
+    plaquette = qpb_plaquette(apegauge);
+    print(" Plaquette = %12.8f\n", plaquette);
+  }
   else
-    {
-      qpb_gauge_field_copy(apegauge, gauge);
-    }
+  {
+    qpb_gauge_field_copy(apegauge, gauge);
+  }
+  print(" Min eigenvalue modification = %.2f\n", delta_min);
+  print(" Max eigenvalue modification = %.2f\n", delta_max);
+  print("\n");
 
   /* Shift it */
   qpb_gauge_field_shift(apegauge, shifts);
