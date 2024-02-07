@@ -544,20 +544,22 @@ qpb_gamma5_sign_function_of_H(qpb_spinor_field y, qpb_spinor_field x)
 void
 qpb_overlap_Chebyshev(qpb_spinor_field y, qpb_spinor_field x)
 {
-  /* Implements: Dov,m(x) = (1-m/(2ρ))*Dov(x) + m x. */
+  /* Implementing:
+              Dov,m(x) = (rho+overlap_mass/2)*x
+                                + (rho-overlap_mass/2)*g5(sign(X))
+  */
   
   qpb_spinor_field z = ov_temp_vecs[0];
 
-  qpb_double mass = ov_params.mass; // Overlap operator Dov,m mass
+  qpb_double overlap_mass = ov_params.mass; // Overlap operator Dov,m mass
   qpb_double rho = ov_params.rho;
-  
-  // Dov(x) ≡ x + γ5( sign(H(x)) )
-  qpb_gamma5_sign_function_of_H(y, x);
-  qpb_spinor_xpy(z, x, y);
 
-  qpb_complex factor = {(1-mass/(2*rho)), 0.};
-  qpb_complex complex_mass = {mass, 0.};
-  qpb_spinor_axpby(y, factor, z, complex_mass, x);
+  qpb_complex a = {rho + 0.5*overlap_mass, 0.};
+  qpb_complex b = {rho - 0.5*overlap_mass, 0.};
+
+  qpb_gamma5_sign_function_of_H(z, x);
+
+  qpb_spinor_axpby(y, a, x, b, z);
 
   return;
 }
