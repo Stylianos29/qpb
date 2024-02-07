@@ -563,3 +563,16 @@ qpb_overlap_Chebyshev(qpb_spinor_field y, qpb_spinor_field x)
 
   return;
 }
+
+
+void
+qpb_gamma5_overlap_Chebyshev(qpb_spinor_field y, qpb_spinor_field x)
+{
+  qpb_overlap_Chebyshev(y, x);
+  
+  qpb_spinor_gamma5(y, y);
+
+  return;
+}
+
+
