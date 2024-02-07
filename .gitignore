@@ -25,3 +25,13 @@ mainprogs/overlap-Chebyshev/ginsparg-wilson-relation/_params.ini_
 mainprogs/overlap-Chebyshev/ginsparg-wilson-relation/log_files/
 mainprogs/overlap-Chebyshev/ginsparg-wilson-relation/params_files/
 mainprogs/overlap-Chebyshev/ginsparg-wilson-relation/ginsparg-wilson-relation
+mainprogs/invert/run.sh
+mainprogs/invert/test.txt
+mainprogs/invert/test.err
+mainprogs/invert/log_files/
+mainprogs/invert/params_files/
+mainprogs/invert/_params.ini_
+mainprogs/mesons/log_files/
+mainprogs/mesons/_params.ini_
+mainprogs/mesons/run.sh
+mainprogs/mesons/params_files/
