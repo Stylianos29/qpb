@@ -13,7 +13,7 @@ else
 	MAKE += --no-print-directory
 endif
 
-DIRS = ginsparg-wilson-relation
+DIRS = ginsparg-wilson-relation invert mesons
 
 all: 
 	-$(C)for d in $(DIRS); do ($(MAKE) -C $$d); done
