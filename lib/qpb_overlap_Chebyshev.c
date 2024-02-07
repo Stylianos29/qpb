@@ -577,7 +577,7 @@ qpb_gamma5_overlap_Chebyshev(qpb_spinor_field y, qpb_spinor_field x)
 
 int
 qpb_congrad_overlap_Chebyshev(qpb_spinor_field x, qpb_spinor_field b,\
-                                  qpb_double epsilon, int max_iter, int n_echo)
+                                              qpb_double epsilon, int max_iter)
 {  
   qpb_spinor_field p = ov_temp_vecs[5];
   qpb_spinor_field r = ov_temp_vecs[6];
@@ -587,6 +587,7 @@ qpb_congrad_overlap_Chebyshev(qpb_spinor_field x, qpb_spinor_field b,\
 
 
   int n_reeval = 100;
+  int n_echo = 10;
   int iters = 0;
 
   qpb_double res_norm, b_norm;
