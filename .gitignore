@@ -35,3 +35,14 @@ mainprogs/mesons/log_files/
 mainprogs/mesons/_params.ini_
 mainprogs/mesons/run.sh
 mainprogs/mesons/params_files/
+mainprogs/overlap-Chebyshev/mesons/params_files/
+mainprogs/overlap-Chebyshev/mesons/log_files/
+mainprogs/overlap-Chebyshev/mesons/_params.ini_
+mainprogs/overlap-Chebyshev/mesons/run.sh
+mainprogs/overlap-Chebyshev/invert/log_files/
+mainprogs/overlap-Chebyshev/invert/run.sh
+mainprogs/overlap-Chebyshev/invert/test.err
+mainprogs/overlap-Chebyshev/invert/invert
+mainprogs/overlap-Chebyshev/mesons/mesons
+mainprogs/overlap-Chebyshev/invert/_params.ini_
+mainprogs/overlap-Chebyshev/invert/test.txt
