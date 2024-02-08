@@ -46,3 +46,4 @@ mainprogs/overlap-Chebyshev/invert/invert
 mainprogs/overlap-Chebyshev/mesons/mesons
 mainprogs/overlap-Chebyshev/invert/_params.ini_
 mainprogs/overlap-Chebyshev/invert/test.txt
+mainprogs/overlap-Chebyshev/invert/params_files/
