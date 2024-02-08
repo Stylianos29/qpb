@@ -538,11 +538,11 @@ main(int argc, char *argv[])
       exit(QPB_PARSER_ERROR);
     };
 
-  qpb_double mass;
-  if(sscanf(qpb_parse("mass"), "%lf", &mass)!=1)
+  qpb_double kappa;
+  if(sscanf(qpb_parse("kappa"), "%lf", &kappa)!=1)
     {
       error("error parsing for %s\n",
-	    "mass");
+	    "kappa");
       exit(QPB_PARSER_ERROR);
     }
   qpb_double c_sw;
@@ -690,7 +690,7 @@ main(int argc, char *argv[])
   print(" %s %s = %g\n", conf_smearing_name, conf_smearing_param_name, conf_smearing_param);
   print(" %s iterations = %d\n", conf_smearing_name, conf_smearing_niter);
   print(" Conf shifts = %d %d %d %d\n", shifts[0], shifts[1], shifts[2], shifts[3]);
-  print(" mass = %g\n", mass);
+  print(" kappa = %g\n", kappa);
   print(" Clover param = %g\n", c_sw);
   print(" BC in time = %g\n", timebc);
   print(" Solver epsilon = %e\n", epsilon);
@@ -920,6 +920,7 @@ main(int argc, char *argv[])
     }
 
   qpb_double t = qpb_stop_watch(0);
+  qpb_double mass = 0.5/kappa - 4;
   qpb_overlap_Chebyshev_init(solver_arg_links, clover_term, rho, c_sw, mass,\
                               epsilon, max_iters, N_Cheb, delta_max, delta_min);
   qpb_double t1 = qpb_stop_watch(t);
