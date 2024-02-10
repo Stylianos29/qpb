@@ -894,7 +894,7 @@ main(int argc, char *argv[])
     case BICGSTAB:
       {
 	char output_prefix[] = "";
-	int n_echo = 1;
+	int n_echo = 10;
 	qpb_bicgstab_init(output_prefix, n_echo);
       }
       break;
