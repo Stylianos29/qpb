@@ -386,3 +386,103 @@ qpb_gamma5_overlap_kl(qpb_spinor_field y, qpb_spinor_field x, \
 
   return;
 }
+
+
+int
+qpb_congrad_overlap_kl(qpb_spinor_field x, qpb_spinor_field b,\
+  enum qpb_kl_classes kl_class, int kl_iters, qpb_double epsilon, int max_iter)
+{  
+  qpb_spinor_field p = ov_temp_vecs[5];
+  qpb_spinor_field r = ov_temp_vecs[6];
+  qpb_spinor_field y = ov_temp_vecs[7];
+  qpb_spinor_field w = ov_temp_vecs[8];
+  qpb_spinor_field bprime = ov_temp_vecs[9];
+
+
+  int n_reeval = 100;
+  int n_echo = 10;
+  int iters = 0;
+
+  qpb_double res_norm, b_norm;
+  qpb_complex_double alpha = {1, 0}, omega = {1, 0};
+  qpb_complex_double beta, gamma;
+
+  qpb_spinor_gamma5(w, b);
+  qpb_gamma5_overlap_kl(bprime, w, kl_class, kl_iters, epsilon, max_iter);
+
+  qpb_spinor_xdotx(&b_norm, bprime);
+  
+  /* r0 = bprime - A(x) */
+  qpb_gamma5_overlap_kl(w, x, kl_class, kl_iters, epsilon, max_iter);
+  qpb_gamma5_overlap_kl(p, w, kl_class, kl_iters, epsilon, max_iter);
+  qpb_spinor_xmy(r, bprime, p);
+
+  qpb_spinor_xdotx(&gamma.re, r);
+  gamma.im = 0;
+  res_norm = gamma.re;
+  /* p = r0 */
+  qpb_spinor_xeqy(p, r);
+
+  qpb_double t = qpb_stop_watch(0);
+  for(iters=1; iters<max_iter; iters++)
+  {
+    if(res_norm / b_norm <= epsilon)
+	    break;
+
+    /* y = A(p) */
+    qpb_gamma5_overlap_kl(w, p, kl_class, kl_iters, epsilon, max_iter);
+    qpb_gamma5_overlap_kl(y, w, kl_class, kl_iters, epsilon, max_iter);
+
+    /* omega = dot(p, A(p)) */
+    qpb_spinor_xdoty(&omega, p, y);
+
+    /* alpha = dot(r, r)/omega */
+    alpha = CDEV(gamma, omega);
+
+    /* x <- x + alpha*p */
+    qpb_spinor_axpy(x, alpha, p, x);
+    if(iters % n_reeval == 0) 
+    {
+      qpb_gamma5_overlap_kl(w, x, kl_class, kl_iters, epsilon, max_iter);
+      qpb_gamma5_overlap_kl(y, w, kl_class, kl_iters, epsilon, max_iter);
+      qpb_spinor_xmy(r, b, y);
+	  }
+    else
+	  {
+      alpha.re = -CDEVR(gamma, omega);
+      alpha.im = -CDEVI(gamma, omega);
+      qpb_spinor_axpy(r, alpha, y, r);
+	  }
+    qpb_spinor_xdotx(&res_norm, r);
+    if((iters % n_echo == 0))
+	    print(" \t iters = %8d, res = %e\n", iters, res_norm / b_norm);
+
+    beta.re = res_norm / gamma.re;
+    beta.im = 0.;
+    qpb_spinor_axpy(p, beta, p, r);
+    gamma.re = res_norm;
+    gamma.im = 0.;
+  }
+
+  t = qpb_stop_watch(t);
+  qpb_gamma5_overlap_kl(w, x, kl_class, kl_iters, epsilon, max_iter);
+  qpb_gamma5_overlap_kl(y, w, kl_class, kl_iters, epsilon, max_iter);
+  qpb_spinor_xmy(r, b, y);
+  qpb_spinor_xdotx(&res_norm, r);
+
+  if(iters==max_iter)
+  {
+    error(" !\n");
+    error(" CG *did not* converge, after %d iterations\n", iters);
+    error(" residual = %e, relative = %e, t = %g secs\n", res_norm,\
+                                                        res_norm / b_norm, t);
+    error(" !\n");
+    return -1;
+  }
+
+  print(" \t After %d iters, CG converged, res = %e, relative = %e,\
+                        t = %g secs\n", iters, res_norm, res_norm / b_norm, t);
+  
+  return iters;
+}
+
