@@ -927,7 +927,7 @@ main(int argc, char *argv[])
 
   for(int i=0; i<n_spinors; i++)
     {
-      qpb_congrad_overlap_Chebyshev(sol[i], source[i], epsilon, max_iters);
+      iters = qpb_congrad_overlap_Chebyshev(sol[i], source[i], epsilon, max_iters);
       print(" Done vector = %d / %d, iters = %d\n", i+1, n_spinors, iters);
     }
 
