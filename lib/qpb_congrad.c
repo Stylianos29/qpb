@@ -47,7 +47,7 @@ qpb_congrad(qpb_spinor_field x, qpb_spinor_field b, void * gauge,
   qpb_spinor_field w = congrad_temp_vecs[3];
 
   int iters = 0;
-  const int n_echo = 1, n_reeval = 10;
+  const int n_echo = 100, n_reeval = 10;
   qpb_double res_norm, b_norm;
   qpb_complex_double alpha = {1, 0}, omega = {1, 0};
   qpb_complex_double beta, gamma;
