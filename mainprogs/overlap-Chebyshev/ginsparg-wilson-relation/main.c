@@ -383,8 +383,8 @@ main(int argc, char *argv[])
   {
     qpb_gauge_field_copy(apegauge, gauge);
   }
-  print(" Min eigenvalue modification = %.2f\n", delta_min);
-  print(" Max eigenvalue modification = %.2f\n", delta_max);
+  print(" Min eigenvalue modification = %.8f\n", delta_min);
+  print(" Max eigenvalue modification = %.8f\n", delta_max);
   print("\n");
 
   /* Shift it */
