@@ -242,7 +242,7 @@ main(int argc, char *argv[])
      shifts[2]<0 ||
      shifts[3]<0)
     {
-      error("only provide positive shifts, quiting\n");
+      error("only provide positive shifts, quitting\n");
       exit(QPB_PARAMETERS_ERROR);
     }
 
@@ -251,7 +251,7 @@ main(int argc, char *argv[])
      shifts[2] > g_dim[2]-1 ||
      shifts[3] > g_dim[3]-1)
     {
-      error("shift(s) go beyond lattice length(s), quiting\n");
+      error("shift(s) go beyond lattice length(s), quitting\n");
       exit(QPB_PARAMETERS_ERROR);
     }
   
