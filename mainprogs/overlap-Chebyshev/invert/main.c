@@ -220,14 +220,6 @@ main(int argc, char *argv[])
       exit(QPB_PARSER_ERROR);	  
     }
 
-  qpb_double rho;
-  if(sscanf(qpb_parse("rho"), "%lf", &rho)!=1)
-    {
-      error("error parsing for %s\n",
-	    "rho");
-      exit(QPB_PARSER_ERROR);
-    }
-
   int conf_smearing_niter;
   sprintf(aux_string, "%s smearing iterations", conf_smearing_name);
   if(sscanf(qpb_parse(aux_string), "%d", &conf_smearing_niter)!=1)
@@ -236,6 +228,16 @@ main(int argc, char *argv[])
 	    aux_string);
       exit(QPB_PARSER_ERROR);
     }
+
+
+  qpb_double rho;
+  if(sscanf(qpb_parse("rho"), "%lf", &rho)!=1)
+    {
+      error("error parsing for %s\n",
+	    "rho");
+      exit(QPB_PARSER_ERROR);
+    }
+
 
   int shifts[ND];
   if(sscanf(qpb_parse("Gauge shifts"), "%d %d %d %d",
@@ -250,7 +252,7 @@ main(int argc, char *argv[])
      shifts[2]<0 ||
      shifts[3]<0)
     {
-      error("only provide positive shifts, quiting\n");
+      error("only provide positive shifts, quitting\n");
       exit(QPB_PARAMETERS_ERROR);
     }
 
@@ -259,7 +261,7 @@ main(int argc, char *argv[])
      shifts[2] > g_dim[2]-1 ||
      shifts[3] > g_dim[3]-1)
     {
-      error("shift(s) go beyond lattice length(s), quiting\n");
+      error("shift(s) go beyond lattice length(s), quitting\n");
       exit(QPB_PARAMETERS_ERROR);
     }
   
@@ -603,7 +605,6 @@ main(int argc, char *argv[])
       exit(QPB_PARSER_ERROR);
     }
 
-
   qpb_finalize_parser();
 
   /* initialize cartesian grid and index tables */
@@ -692,6 +693,7 @@ main(int argc, char *argv[])
   print(" Conf shifts = %d %d %d %d\n", shifts[0], shifts[1], shifts[2], shifts[3]);
   print(" kappa = %g\n", kappa);
   print(" Clover param = %g\n", c_sw);
+  print(" Number of Chebyshev polynomial terms = %d\n", N_Cheb);
   print(" BC in time = %g\n", timebc);
   print(" Solver epsilon = %e\n", epsilon);
   print(" Max solver iters = %d\n", max_iters);
@@ -919,11 +921,11 @@ main(int argc, char *argv[])
       break;
     }
 
+
   qpb_double t = qpb_stop_watch(0);
   qpb_double mass = 0.5/kappa - 4;
   qpb_overlap_Chebyshev_init(solver_arg_links, clover_term, rho, c_sw, mass,\
                               epsilon, max_iters, N_Cheb, delta_max, delta_min);
-  qpb_double t1 = qpb_stop_watch(t);
 
   for(int i=0; i<n_spinors; i++)
     {
@@ -943,17 +945,18 @@ main(int argc, char *argv[])
     {
       qpb_spinor_field *aux = qpb_alloc(sizeof(qpb_spinor_field)*n_spinors);
       for(int i=0; i<n_spinors; i++)
-	    aux[i] = sol[j+i*numb_shifts];
+	      aux[i] = sol[j+i*numb_shifts];
 
       qpb_write_n_spinor(aux, n_spinors, sol_file);
 
       free(aux);
     }
+
   /* clean up */
   for(int i=0; i<n_spinors; i++)
     {
       for(int j=0; j<numb_shifts; j++)
-	    qpb_spinor_field_finalize(sol[j+i*numb_shifts]);
+	      qpb_spinor_field_finalize(sol[j+i*numb_shifts]);
 
       qpb_spinor_field_finalize(source[i]);
     }
