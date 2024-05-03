@@ -451,7 +451,7 @@ X_op(qpb_spinor_field y, qpb_spinor_field x)
      eigenvalues spectrum of H^2.
   */
 
-  qpb_spinor_field z = ov_temp_vecs[4];
+  qpb_spinor_field z = ov_temp_vecs[0];
 
   qpb_double alpha = ov_params.min_eigv;
   qpb_double beta = ov_params.max_eigv;
@@ -470,7 +470,7 @@ X_op(qpb_spinor_field y, qpb_spinor_field x)
 
 
 INLINE void
-qpb_nth_Chebyshev_polynomial_term(qpb_spinor_field y, qpb_spinor_field x, int n)
+qpb_Tnp1_Chebyshev_polynomial_term(qpb_spinor_field y, qpb_spinor_field x)
 {
   /* Implementation of the recursive relation for the calculation of the
      nth degree matrix Chebyshev polynomial term of the 1st kind, with the
@@ -493,13 +493,14 @@ qpb_nth_Chebyshev_polynomial_term(qpb_spinor_field y, qpb_spinor_field x, int n)
      construction.
   */
 
-  qpb_spinor_field z = ov_temp_vecs[3];
+  qpb_spinor_field z = ov_temp_vecs[1];
 
   qpb_complex two = {2., 0.};
   X_op(y, Chebyshev_Tn_vec);
   qpb_spinor_ax(z, two, y);
   qpb_spinor_xmy(y, z, Chebyshev_Tnm1_vec);
 
+  // Update Chebyshev_Tnm1_vec and Chebyshev_Tn_vec
   qpb_spinor_xeqy(Chebyshev_Tnm1_vec, Chebyshev_Tn_vec);
   qpb_spinor_xeqy(Chebyshev_Tn_vec, y);
 
@@ -512,8 +513,8 @@ qpb_gamma5_sign_function_of_H(qpb_spinor_field y, qpb_spinor_field x)
 {
   /* Implements: γ5( sign( H(x) ) ) = γ5( H( Sum_{n=0}^{N-1} c_n*T_n(x) ) ). */
 
-  qpb_spinor_field sum = ov_temp_vecs[1];
-  qpb_spinor_field Tn = ov_temp_vecs[2];
+  qpb_spinor_field sum = ov_temp_vecs[2];
+  qpb_spinor_field Tn = ov_temp_vecs[3];
 
   // Initialize Chebyshev_Tnm1_vec with T_{n=0}
   qpb_spinor_xeqy(Chebyshev_Tnm1_vec, x);
@@ -528,13 +529,13 @@ qpb_gamma5_sign_function_of_H(qpb_spinor_field y, qpb_spinor_field x)
   for (int n=1; n<number_of_Chebyshev_terms-1; ++n)
   {
     qpb_spinor_axpy(sum, Chebyshev_coeff[n], Tn, sum);
-    // Calculate the next Chebyshev polynomial term
-    qpb_nth_Chebyshev_polynomial_term(Tn, x, n);
+    // Calculate the next Chebyshev polynomial term Tnp1
+    qpb_Tnp1_Chebyshev_polynomial_term(Tn, x);
   }
   // Add the last term to the sum
   qpb_spinor_axpy(sum, Chebyshev_coeff[number_of_Chebyshev_terms-1], Tn, sum);
 
-  // γ5(H(χ)) corresponds simply to D(x)
+  // γ5(H(x)) corresponds simply to D(x)
   D_op(y, sum);
 
   return;
@@ -548,7 +549,7 @@ qpb_overlap_Chebyshev(qpb_spinor_field y, qpb_spinor_field x)
         Dov,m(x) = (rho+overlap_mass/2)*x+ (rho-overlap_mass/2)*g5(sign(X))
   */
   
-  qpb_spinor_field z = ov_temp_vecs[0];
+  qpb_spinor_field z = ov_temp_vecs[4];
 
   qpb_double overlap_mass = ov_params.mass; // Overlap operator Dov,m mass
   qpb_double rho = ov_params.rho;
@@ -632,7 +633,7 @@ qpb_congrad_overlap_Chebyshev(qpb_spinor_field x, qpb_spinor_field b,\
     {
       qpb_gamma5_overlap_Chebyshev(w, x);
       qpb_gamma5_overlap_Chebyshev(y, w);
-      qpb_spinor_xmy(r, b, y);
+      qpb_spinor_xmy(r, bprime, y);
 	  }
     else
 	  {
@@ -652,9 +653,19 @@ qpb_congrad_overlap_Chebyshev(qpb_spinor_field x, qpb_spinor_field b,\
   }
 
   t = qpb_stop_watch(t);
+  
+  // Chebyshev inversion check
+  qpb_overlap_Chebyshev(y, x);
+  qpb_spinor_xmy(r, y, bprime);
+  qpb_double r_norm, b_original_norm;
+  qpb_spinor_xdotx(&r_norm, r);
+  qpb_spinor_xdotx(&b_original_norm, b);
+  // print("Chebyshev inversion check: %.2e\n", r_norm/b_original_norm);
+
   qpb_gamma5_overlap_Chebyshev(w, x);
   qpb_gamma5_overlap_Chebyshev(y, w);
-  qpb_spinor_xmy(r, b, y);
+  // qpb_spinor_xmy(r, b, y);
+  qpb_spinor_xmy(r, bprime, y);
   qpb_spinor_xdotx(&res_norm, r);
 
   if(iters==max_iter)
@@ -667,9 +678,7 @@ qpb_congrad_overlap_Chebyshev(qpb_spinor_field x, qpb_spinor_field b,\
     return -1;
   }
 
-  print(" \t After %d iters, CG converged, res = %e, relative = %e,\
-                        t = %g secs\n", iters, res_norm, res_norm / b_norm, t);
-  
+  print(" \t After %d iters, CG converged, res = %e, relative = %e, t = %g secs\n", iters, res_norm, res_norm / b_original_norm, t);
+
   return iters;
 }
-
