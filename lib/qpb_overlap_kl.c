@@ -700,8 +700,7 @@ qpb_congrad_overlap_kl(qpb_spinor_field x, qpb_spinor_field b,\
     return -1;
   }
 
-  print(" \t After %d iters, CG converged, res = %e, relative = %e,\
-                        t = %g secs\n", iters, res_norm, res_norm / b_norm, t);
+  print(" \t After %d iters, CG converged, res = %e, relative = %e, t = %g secs\n", iters, res_norm, res_norm / b_norm, t);
   
   return iters;
 }
@@ -825,8 +824,7 @@ qpb_congrad_propagator_single_fraction_denominator_op(qpb_spinor_field x, qpb_sp
     return -1;
   }
 
-  print(" \t After %d iters, CG converged, res = %e, relative = %e,\
-                        t = %g secs\n", iters, res_norm, res_norm / b_norm, t);
+  print(" \t After %d iters, CG converged, res = %e, relative = %e, t = %g secs\n", iters, res_norm, res_norm / b_norm, t);
   
   return iters;
 }
