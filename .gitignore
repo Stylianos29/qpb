@@ -19,3 +19,4 @@ testprogs/source_rms/source_rms
 *.o
 *.d
 *.*~
+install/*
