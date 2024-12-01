@@ -223,8 +223,8 @@ qpb_extreme_eigenvalues_of_H_squared(qpb_double *min_eigv, \
     dlambda = fabs(lambda - lambda0) / fabs(lambda + lambda0);
     if (i%100==0)
       print(" iter = %4d, CN = %e/%e = %e (change = %e, target = %e)\n", i+1,\
-                              eig[i], eig[0], eig[i]/eig[0], dlambda, epsilon);
-    if(dlambda < epsilon*0.5)
+                      eig[i], eig[0], eig[i]/eig[0], dlambda, Lanczos_epsilon);
+    if(dlambda < Lanczos_epsilon*0.5)
       break;
     lambda0 = lambda;
   }
@@ -839,7 +839,7 @@ qpb_congrad_overlap_Chebyshev(qpb_spinor_field x, qpb_spinor_field b,\
   qpb_spinor_xmy(r, bprime, y);
   qpb_spinor_xdotx(&res_norm, r);
 
-  if(iters==max_iter)
+  if(iters==CG_max_iter)
   {
     error(" !\n");
     error(" CG *did not* converge, after %d iterations\n", iters);
