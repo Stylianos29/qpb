@@ -69,10 +69,10 @@ qpb_mscongrad(qpb_spinor_field *x, qpb_spinor_field b, void * gauge,
     }
   }
   
-  for(int s=0; s<numb_shifts; s++)
-    {
-      print(" %g\n", sigmas[s]);
-    }
+  // for(int s=0; s<numb_shifts; s++)
+  //   {
+  //     print(" %g\n", sigmas[s]);
+  //   }
 
   int ns = numb_shifts - 1;
 
