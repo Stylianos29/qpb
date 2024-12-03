@@ -418,8 +418,8 @@ main(int argc, char *argv[])
       break;
     }
   
-  qpb_spinor_field temp_vecs[4];
-  for(int i=0; i<4; i++)
+  qpb_spinor_field temp_vecs[1];
+  for(int i=0; i<1; i++)
     temp_vecs[i] = qpb_spinor_field_init();
   
   qpb_double *diffs;
@@ -430,34 +430,34 @@ main(int argc, char *argv[])
               Lanczos_epsilon, Lanczos_max_iters, N_Cheb, delta_max, delta_min);
   qpb_double t1 = qpb_stop_watch(t);
   
-  print("\n");
   for(int i=0; i<n_vec; i++)
-    {
-      // SignX squared
-      qpb_spinor_field signX = temp_vecs[0];
+  {
+    print("\n");
 
-      qpb_gamma5_sign_function_of_X(signX, eta[i]);
-      qpb_spinor_gamma5(signX, signX);
+    qpb_spinor_field signX = temp_vecs[0];
 
-      qpb_double signX_norm_squared, eta_norm;
-      qpb_spinor_xdotx(&signX_norm_squared, signX);
-      qpb_spinor_xdotx(&eta_norm, eta[i]);
+    qpb_gamma5_sign_function_of_X(signX, eta[i]);
+    qpb_spinor_gamma5(signX, signX);
 
-      diffs[i] = signX_norm_squared/eta_norm;
-      print(" Done vector = %d / %d, ||Sign^2(X)||^2 = %e\n", i+1, n_vec, diffs[i]);
-    }
+    qpb_double signX_norm_squared, eta_norm;
+    qpb_spinor_xdotx(&signX_norm_squared, signX);
+    qpb_spinor_xdotx(&eta_norm, eta[i]);
 
+    diffs[i] = signX_norm_squared/eta_norm;
+    print(" Done vector = %d / %d, ||Sign^2(X)||^2 = %e\n", i+1, n_vec, diffs[i]);
+  }
   t = qpb_stop_watch(t);
+
   print(" Done, %d vectors in t = %f sec\n", n_vec, t);
+  qpb_overlap_Chebyshev_finalize();
 
   print(" ||Sign^2(X)||^2 (normalized, per stochastic source):\n");
   for(int i=0; i<n_vec; i++)
     print(" %4d %e\n", i, diffs[i]);
   free(diffs);
 
-  qpb_overlap_Chebyshev_finalize();
 
-  for(int i=0; i<4; i++)
+  for(int i=0; i<1; i++)
     qpb_spinor_field_finalize(temp_vecs[i]);
   
   if(which_dslash_op == QPB_DSLASH_BRILLOUIN)

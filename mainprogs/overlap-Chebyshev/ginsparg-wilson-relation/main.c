@@ -432,43 +432,44 @@ main(int argc, char *argv[])
               Lanczos_epsilon, Lanczos_max_iters, N_Cheb, delta_max, delta_min);
   qpb_double t1 = qpb_stop_watch(t);
 
-  print("\n");
   for(int i=0; i<n_vec; i++)
-    {
-      qpb_spinor_field g5x = temp_vecs[0];
-      qpb_spinor_field g5Dx = temp_vecs[1];
-      qpb_spinor_field Dg5x = temp_vecs[2];
-      qpb_spinor_field Dg5Dx = temp_vecs[3];
-      /* Compute g5D on eta */
-      qpb_overlap_Chebyshev(g5Dx, eta[i]);
-      qpb_spinor_gamma5(g5Dx, g5Dx);
+  {
+    print("\n");
 
-      /* Compute Dg5 on eta */
-      qpb_spinor_gamma5(g5x, eta[i]);
-      qpb_overlap_Chebyshev(Dg5x, g5x);
+    qpb_spinor_field g5x = temp_vecs[0];
+    qpb_spinor_field g5Dx = temp_vecs[1];
+    qpb_spinor_field Dg5x = temp_vecs[2];
+    qpb_spinor_field Dg5Dx = temp_vecs[3];
+    /* Compute g5D on eta */
+    qpb_overlap_Chebyshev(g5Dx, eta[i]);
+    qpb_spinor_gamma5(g5Dx, g5Dx);
 
-      /* Compute Dg5D on eta */
-      qpb_overlap_Chebyshev(Dg5Dx, g5Dx);
-      qpb_spinor_field x = temp_vecs[4];
-      qpb_spinor_xpy(x, Dg5x, g5Dx);
-      qpb_spinor_xmy(x, x, Dg5Dx);
-      qpb_double x_norm, eta_norm;
-      qpb_spinor_xdotx(&x_norm, x);
-      qpb_spinor_xdotx(&eta_norm, eta[i]);
-      diffs[i] = x_norm/eta_norm;
-      print(" Done vector = %d / %d, GW diff = %e\n", i+1, n_vec, diffs[i]);
-    }
+    /* Compute Dg5 on eta */
+    qpb_spinor_gamma5(g5x, eta[i]);
+    qpb_overlap_Chebyshev(Dg5x, g5x);
 
+    /* Compute Dg5D on eta */
+    qpb_overlap_Chebyshev(Dg5Dx, g5Dx);
+    qpb_spinor_field x = temp_vecs[4];
+    qpb_spinor_xpy(x, Dg5x, g5Dx);
+    qpb_spinor_xmy(x, x, Dg5Dx);
+    qpb_double x_norm, eta_norm;
+    qpb_spinor_xdotx(&x_norm, x);
+    qpb_spinor_xdotx(&eta_norm, eta[i]);
+    diffs[i] = x_norm/eta_norm;
+    print(" Done vector = %d / %d, GW diff = %e\n", i+1, n_vec, diffs[i]);
+  }
   t = qpb_stop_watch(t);
+
   print(" Done, %d vectors in t = %f sec, overhead = %f sec\n", n_vec, t, t1);
   qpb_overlap_Chebyshev_finalize();
-    
+
   print(" GW Diffs (per stochastic source):\n");
   for(int i=0; i<n_vec; i++)
     print(" %4d %e\n", i, diffs[i]);
   free(diffs);
 
-  for(int i=0; i<6; i++)
+  for(int i=0; i<NUMB_TEMP_VECS; i++)
     qpb_spinor_field_finalize(temp_vecs[i]);
   
   if(which_dslash_op == QPB_DSLASH_BRILLOUIN)

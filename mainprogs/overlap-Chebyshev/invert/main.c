@@ -950,19 +950,17 @@ main(int argc, char *argv[])
   qpb_overlap_Chebyshev_init(solver_arg_links, clover_term, rho, c_sw, mass,\
               Lanczos_epsilon, Lanczos_max_iters, N_Cheb, delta_max, delta_min);
 
-  print("\n");
   for(int i=0; i<n_spinors; i++)
-    {
-      // iters = qpb_bicgstab_overlap_Chebyshev(sol[i], source[i], epsilon, max_iters);
-      iters = qpb_congrad_overlap_Chebyshev(sol[i], source[i], \
+  {
+    print("\n");
+    iters = qpb_congrad_overlap_Chebyshev(sol[i], source[i], \
                                               solver_epsilon, solver_max_iters);
-      print(" Done vector = %d / %d, iters = %d\n", i+1, n_spinors, iters);
-    }
-
-  qpb_overlap_Chebyshev_finalize();
+    print(" Done vector = %d / %d, iters = %d\n", i+1, n_spinors, iters);
+  }
   t = qpb_stop_watch(t);
-  print(" CG done, %d vectors in t = %f sec\n", n_spinors, t);
 
+  print(" CG done, %d vectors in t = %f sec\n", n_spinors, t);
+  qpb_overlap_Chebyshev_finalize();
 
   if(which_dslash_op == QPB_DSLASH_BRILLOUIN)
     qpb_diagonal_links_finalize(diagonal_links);

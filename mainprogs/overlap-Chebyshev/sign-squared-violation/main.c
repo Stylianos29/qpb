@@ -419,8 +419,8 @@ main(int argc, char *argv[])
       break;
     }
   
-  qpb_spinor_field temp_vecs[4];
-  for(int i=0; i<4; i++)
+  qpb_spinor_field temp_vecs[3];
+  for(int i=0; i<3; i++)
     temp_vecs[i] = qpb_spinor_field_init();
   
   qpb_double *diffs;
@@ -431,40 +431,41 @@ main(int argc, char *argv[])
               Lanczos_epsilon, Lanczos_max_iters, N_Cheb, delta_max, delta_min);
   qpb_double t1 = qpb_stop_watch(t);
 
-  print("\n");
   for(int i=0; i<n_vec; i++)
-    {
-      qpb_spinor_field signX_squared = temp_vecs[0];
-      qpb_spinor_field temp = temp_vecs[1];
-      qpb_spinor_field diff = temp_vecs[2];
+  {
+    print("\n");
 
-      qpb_gamma5_sign_function_of_X(signX_squared, eta[i]);
-      qpb_spinor_gamma5(signX_squared, signX_squared);
+    qpb_spinor_field signX_squared = temp_vecs[0];
+    qpb_spinor_field temp = temp_vecs[1];
+    qpb_spinor_field diff = temp_vecs[2];
 
-      qpb_gamma5_sign_function_of_X(temp, signX_squared);
-      qpb_spinor_gamma5(signX_squared, temp);
+    qpb_gamma5_sign_function_of_X(signX_squared, eta[i]);
+    qpb_spinor_gamma5(signX_squared, signX_squared);
 
-      qpb_spinor_xmy(diff, signX_squared, eta[i]);      
+    qpb_gamma5_sign_function_of_X(temp, signX_squared);
+    qpb_spinor_gamma5(signX_squared, temp);
 
-      qpb_double diff_norm, eta_norm;
-      qpb_spinor_xdotx(&diff_norm, diff);
-      qpb_spinor_xdotx(&eta_norm, eta[i]);
+    qpb_spinor_xmy(diff, signX_squared, eta[i]);      
 
-      diffs[i] = diff_norm/eta_norm;
-      print(" Done vector = %d / %d, || Sign^2(X) - 1 ||^2 = %e\n", i+1, n_vec, diffs[i]);
-    }
+    qpb_double diff_norm, eta_norm;
+    qpb_spinor_xdotx(&diff_norm, diff);
+    qpb_spinor_xdotx(&eta_norm, eta[i]);
 
+    diffs[i] = diff_norm/eta_norm;
+    print(" Done vector = %d / %d, || Sign^2(X) - 1 ||^2 = %e\n", i+1, n_vec, diffs[i]);
+  }
   t = qpb_stop_watch(t);
+  
   print(" Done, %d vectors in t = %f sec\n", n_vec, t);
+  qpb_overlap_Chebyshev_finalize();
 
   print(" || Sign^2(X) - 1 ||^2 (normalized, per stochastic source):\n");
   for(int i=0; i<n_vec; i++)
     print(" %4d %e\n", i, diffs[i]);
   free(diffs);
 
-  qpb_overlap_Chebyshev_finalize();
 
-  for(int i=0; i<4; i++)
+  for(int i=0; i<3; i++)
     qpb_spinor_field_finalize(temp_vecs[i]);
   
   if(which_dslash_op == QPB_DSLASH_BRILLOUIN)
