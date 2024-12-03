@@ -779,7 +779,7 @@ qpb_congrad_overlap_Chebyshev(qpb_spinor_field x, qpb_spinor_field b,\
   qpb_double t = qpb_stop_watch(0);
   for(iters=1; iters<CG_max_iter; iters++)
   {
-    if(res_norm / b_norm <= CG_epsilon*CG_epsilon)
+    if(res_norm / b_norm <= CG_epsilon)
     {
       // print("CG stopped at: %.25e\n", res_norm / b_norm );
       break;
