@@ -359,8 +359,9 @@ qpb_congrad_qnn_X2(qpb_spinor_field x, qpb_spinor_field b)
     return -1;
   }
 
-  // print(" \t After %d iters, q_nn CG converged, res = %e, relative = %e, \
-t = %g secs\n", iters, res_norm, res_norm / b_norm, t);
+  // print(" \tAfter %d iters, q_nn CG converged, res = %e, "
+  //         "relative = %e, t = %g secs\n",
+  //          iters, res_norm, res_norm / b_norm, t);
   
   return iters;
 }
@@ -524,8 +525,9 @@ qpb_congrad_overlap_kl_sfrac(qpb_spinor_field x, qpb_spinor_field b, \
     return -1;
   }
 
-  print(" \t After %d iters, CG converged, res = %e, relative = %e, \
-t = %g secs\n", iters, res_norm, res_norm / b_norm, t);
+  print(" \tAfter %d iters, CG converged, res = %e, "
+            "relative = %e, t = %g secs\n",
+             iters, res_norm, res_norm / b_norm, t);
 
   return iters;
 }
@@ -664,8 +666,9 @@ qpb_congrad_aqnn_plus_bDpnn(qpb_spinor_field x, \
     return -1;
   }
 
-  print(" \t After %d iters, CG converged, res = %e, relative = %e, \
-                        t = %g secs\n", iters, res_norm, res_norm / b_norm, t);
+  printf(" \tAfter %d iters, CG converged, res = %e, "
+          "relative = %e, t = %g secs\n",
+           iters, res_norm, res_norm / b_norm, t);
 
   return iters;
 }

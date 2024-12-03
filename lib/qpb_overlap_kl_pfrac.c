@@ -356,8 +356,9 @@ qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b, \
     return -1;
   }
 
-  print(" \t After %d iters, CG converged, res = %e, relative = %e, \
-                        t = %g secs\n", iters, res_norm, res_norm / b_norm, t);
+  print(" \tAfter %d iters, CG converged, res = %e, relative = %e, "
+        "t = %g secs\n",
+         iters, res_norm, res_norm / b_norm, t);
   
   return iters;
 }
