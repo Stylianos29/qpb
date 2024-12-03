@@ -959,6 +959,7 @@ main(int argc, char *argv[])
   }
   t = qpb_stop_watch(t);
 
+  print("\n");
   print(" CG done, %d vectors in t = %f sec\n", n_spinors, t);
   qpb_overlap_Chebyshev_finalize();
 
