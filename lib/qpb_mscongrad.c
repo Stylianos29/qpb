@@ -50,7 +50,7 @@ qpb_mscongrad(qpb_spinor_field *x, qpb_spinor_field b, void * gauge,
 	      qpb_double c_sw, qpb_double epsilon, int max_iter)
 {
   int iters = 0;
-  const int n_echo = 1, n_reeval = 10, n_check_conerged = 100000;
+  const int n_echo = 10, n_reeval = 100, n_check_conerged = 100000;
 
   qpb_spinor_field r = mscongrad_temp_vecs[0];
   qpb_spinor_field y = mscongrad_temp_vecs[1];
