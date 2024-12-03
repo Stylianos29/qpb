@@ -806,6 +806,7 @@ main(int argc, char *argv[])
     }
   print(" Min eigenvalue squared modification = %f\n", delta_min);
   print(" Max eigenvalue squared modification = %f\n", delta_max);
+  print("\n");
 
   /* Shift it */
   qpb_gauge_field_shift(smearedgauge, shifts);

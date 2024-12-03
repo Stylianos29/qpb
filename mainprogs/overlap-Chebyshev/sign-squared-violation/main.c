@@ -389,6 +389,7 @@ main(int argc, char *argv[])
   qpb_gauge_field_shift(gauge, shifts);
   print(" Min eigenvalue squared modification = %f\n", delta_min);
   print(" Max eigenvalue squared modification = %f\n", delta_max);
+  print("\n");
 
   /* Clover term */
   qpb_clover_term clover_term = qpb_clover_term_init();

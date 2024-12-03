@@ -333,7 +333,6 @@ qpb_overlap_Chebyshev_init(void *gauge, qpb_clover_term clover, qpb_double rho,\
                                         ov_params.min_eigv*ov_params.min_eigv);
     print(" Max eigenvalue squared = %.16f\n", \
                                         ov_params.max_eigv*ov_params.max_eigv);
-    print("\n");
 
     /* ----------------------- expansion coefficients ----------------------- */
 
