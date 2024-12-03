@@ -260,14 +260,14 @@ qpb_mscongrad(qpb_spinor_field *x, qpb_spinor_field b, void * gauge,
       /*
 	Check if one of the shifts has converged
        */
-      if(iters % n_check_conerged == 0)
+      // if(iters % n_check_conerged == 0)
 	for(int s=0; s<ns; s++)
 	  if(!converged[s])
 	    {
 	      qpb_double p_norm;
 	      qpb_spinor_xdotx(&p_norm, p_s[s]);
-	      if(CNORM2(beta_s[s])*p_norm < epsilon)
-		{
+	      // if(CNORM2(beta_s[s])*p_norm < epsilon)
+		// {
 		  qpb_complex shift = (qpb_complex){sigmas[s+1], 0.};
 		  qpb_double res_s;
 		  dslash_func(y, x[s+1], dslash_args);
@@ -278,7 +278,7 @@ qpb_mscongrad(qpb_spinor_field *x, qpb_spinor_field b, void * gauge,
 		  if(res_s / b_norm <= epsilon)
 		    converged[s] = 1;
 		  
-		}	    
+		// }	    
 	    }
     }
   t = qpb_stop_watch(t);
