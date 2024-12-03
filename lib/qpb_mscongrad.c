@@ -248,7 +248,7 @@ qpb_mscongrad(qpb_spinor_field *x, qpb_spinor_field b, void * gauge,
     
       qpb_spinor_axpy(p, alpha, p, r);
       if(iters%n_echo == 0)
-	print(" iters = %8d, res = %e\n", iters, res_norm / b_norm);
+	print(" \titers = %8d, res = %e\n", iters, res_norm / b_norm);
 
       beta0 = beta1;
       for(int s=0; s<ns; s++)
