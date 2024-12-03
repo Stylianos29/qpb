@@ -188,15 +188,13 @@ tridiag_eigenv(double *eig, double *a, double *b, int n)
 }
 
 
-void
-qpb_extreme_eigenvalues_of_H_squared(qpb_double *min_eigv, \
+int
+qpb_extreme_eigenvalues_of_X_squared(qpb_double *min_eigv, \
   qpb_double *max_eigv, qpb_double Lanczos_epsilon, int max_iters)
 {
   /* It calculates the extreme eigenvalues of the eigenvalue spectrum 
   of H^2, H ≡ γ5*Kernel(x), with: Kernel(x) = (a*D - ρ)(x), using the Lanczos
   algorithm. */
-
-  Lanczos_epsilon = 1E-8;
 
   qpb_lanczos_init();
 
@@ -214,7 +212,7 @@ qpb_extreme_eigenvalues_of_H_squared(qpb_double *min_eigv, \
   qpb_lanczos(a, b, solver_arg_links, clover_term, kappa, c_sw, 1);
   qpb_double lambda = 0, dlambda, lambda0 = 1e3;
   int i=0;
-  for(i=1; 1<max_iters; i++)
+  for(i=1; i<max_iters; i++)
   {
     qpb_lanczos(a, b, solver_arg_links, clover_term, kappa, c_sw, -1);
     tridiag_eigenv(eig, a, b, i+1);
@@ -222,7 +220,7 @@ qpb_extreme_eigenvalues_of_H_squared(qpb_double *min_eigv, \
     lambda = eig[i] / eig[0];
     dlambda = fabs(lambda - lambda0) / fabs(lambda + lambda0);
     if (i%100==0)
-      print(" iter = %4d, CN = %e/%e = %e (change = %e, target = %e)\n", i+1,\
+      print("\titer = %4d, CN = %e/%e = %e (change = %e, target = %e)\n", i+1,\
                       eig[i], eig[0], eig[i]/eig[0], dlambda, Lanczos_epsilon);
     if(dlambda < Lanczos_epsilon*0.5)
       break;
@@ -232,7 +230,7 @@ qpb_extreme_eigenvalues_of_H_squared(qpb_double *min_eigv, \
   *min_eigv = (qpb_double) eig[0];
   *max_eigv = (qpb_double) eig[i-1];
 
-  return;
+  return i;
 }
 
 /* ------------------------ MATRIX-VECTOR FUNCTIONS ------------------------ */
@@ -319,24 +317,22 @@ qpb_overlap_Chebyshev_init(void *gauge, qpb_clover_term clover, qpb_double rho,\
     /* First the the extrema of the eigenvalues spectrum of H^2,
     H = g5*(D - rho), are calculated and are stored inside the
     'min_eigv_squared' and 'max_eigv_squared'variables correspondingly. */
-    qpb_extreme_eigenvalues_of_H_squared(&min_eigv_squared, &max_eigv_squared, \
-      Lanczos_epsilon, Lanczos_max_iters);
+    int Lanczos_iters = qpb_extreme_eigenvalues_of_X_squared(&min_eigv_squared,\
+                      &max_eigv_squared, Lanczos_epsilon, Lanczos_max_iters);
+    // print(" Total number of Lanczos algorithm iterations = %d\n", \
+                                                                // Lanczos_iters);
     /* And then their square root value is stored inside the 'min_eigv' and
     'max_eigv' attributes of the 'ov_params' struct. */
     ov_params.min_eigv = sqrt(min_eigv_squared*delta_min);
     ov_params.max_eigv = sqrt(max_eigv_squared*delta_max);
 
-    // Standard case
-    // ov_params.min_eigv = 0.0270280534702002*delta_min;
-    // ov_params.max_eigv = 6.9444256579015331*delta_max;
-    
-    // Brillouin case
-    // ov_params.min_eigv = 0.0077694754090073*delta_min;
-    // ov_params.max_eigv = 1.7214812823042396*delta_max;
-
-    print("\tExtrema of the eigenvalues spectrum:\n\
-              \talpha = %.16f, beta = %.16f\n",\
-                                      ov_params.min_eigv, ov_params.max_eigv);
+    // print("\tExtrema of the eigenvalues spectrum:\n\
+    //           \talpha = %.16f, beta = %.16f\n",\
+    //                                   ov_params.min_eigv, ov_params.max_eigv);
+    print(" Min eigenvalue squared = %.16f\n", \
+                                        ov_params.min_eigv*ov_params.min_eigv);
+    print(" Max eigenvalue squared = %.16f\n", \
+                                        ov_params.max_eigv*ov_params.max_eigv);
     print("\n");
 
     /* ----------------------- expansion coefficients ----------------------- */
@@ -640,7 +636,7 @@ qpb_Clenshaw_sum(qpb_spinor_field y, qpb_spinor_field x)
 
 
 void
-qpb_gamma5_sign_function_of_H(qpb_spinor_field y, qpb_spinor_field x)
+qpb_gamma5_sign_function_of_X(qpb_spinor_field y, qpb_spinor_field x)
 {
   /* Implements: γ5( sign( H(x) ) ) = γ5( H( Sum_{n=0}^{N-1} c_n*T_n(x) ) ). */
 
@@ -688,7 +684,7 @@ qpb_overlap_Chebyshev(qpb_spinor_field y, qpb_spinor_field x)
   qpb_complex a = {rho + 0.5*overlap_mass, 0.};
   qpb_complex b = {rho - 0.5*overlap_mass, 0.};
 
-  // qpb_gamma5_sign_function_of_H(z, x);
+  // qpb_gamma5_sign_function_of_X(z, x);
   // qpb_gamma5_sign_function_of_H_Clenshaw(z, x);
   qpb_Clenshaw_sum(y, x);
   D_op(z, y);
@@ -715,7 +711,7 @@ qpb_overlap_Chebyshev_complex_conjugate(qpb_spinor_field y, qpb_spinor_field x)
   qpb_complex a = {rho + 0.5*overlap_mass, 0.};
   qpb_complex b = {rho - 0.5*overlap_mass, 0.};
 
-  // qpb_gamma5_sign_function_of_H(z, x);
+  // qpb_gamma5_sign_function_of_X(z, x);
   // qpb_gamma5_sign_function_of_H_Clenshaw(z, x);
   qpb_spinor_gamma5(z, x);
   X_op(y, z);
@@ -750,8 +746,8 @@ qpb_congrad_overlap_Chebyshev(qpb_spinor_field x, qpb_spinor_field b,\
   qpb_spinor_field bprime = ov_temp_vecs[9];
 
 
-  int n_reeval = 1;
-  int n_echo = 1;
+  int n_reeval = 100;
+  int n_echo = 10;
   int iters = 0;
 
   qpb_double res_norm, b_norm;
@@ -784,10 +780,10 @@ qpb_congrad_overlap_Chebyshev(qpb_spinor_field x, qpb_spinor_field b,\
   for(iters=1; iters<CG_max_iter; iters++)
   {
     if(res_norm / b_norm <= CG_epsilon*CG_epsilon)
-      {
-        print("CG stopped at: %.25e\n", res_norm / b_norm );
-        break;
-      }
+    {
+      // print("CG stopped at: %.25e\n", res_norm / b_norm );
+      break;
+    }
 
     /* y = A(p) */
     qpb_gamma5_overlap_Chebyshev(w, p);
