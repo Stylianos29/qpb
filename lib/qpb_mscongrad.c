@@ -302,13 +302,13 @@ qpb_mscongrad(qpb_spinor_field *x, qpb_spinor_field b, void * gauge,
   if(iters==max_iter)
     {
       error(" !\n");
-      error(" msCG *did not* converge, after %d iterrations\n", iters);
+      error(" msCG *did not* converge, after %d iterations\n", iters);
       error(" residual = %e, relative = %e, t = %g secs\n", res_norm, res_norm / b_norm, t);
       error(" !\n");
       return -1;
     }
 
-  print(" After %d iterrations msCG converged, t = %g secs\n", iters, t);
+  print(" After %d iterations msCG converged, t = %g secs\n", iters, t);
   print(" Shift = %10g, residual = %e, relative = %e\n", sigmas[0], res_norm, res_norm / b_norm);
   for(int s=0; s<ns; s++)
     print(" Shift = %10g, residual = %e, relative = %e\n", sigmas[s+1], res_s[s], res_s[s] / b_norm);

@@ -312,13 +312,13 @@ qpb_bicgstab_kl11kl11_mult(qpb_spinor_field x, qpb_spinor_field b, qpb_double ep
   if(iters==max_iter)
     {
       error(" !\n");
-      error(" BiCGStab *did not* converge, after %d iterrations\n", iters);
+      error(" BiCGStab *did not* converge, after %d iterations\n", iters);
       error(" residual = %e, relative = %e, t = %g secs\n", res_norm, res_norm / b_norm, secs);
       error(" !\n");
       return -1;
     }
 
-  print(" After %d iterrations BiCGStab converged\n", iters);
+  print(" After %d iterations BiCGStab converged\n", iters);
   print(" residual = %e, relative = %e, t = %g secs\n", res_norm, res_norm / b_norm, secs);
 
   return iters;

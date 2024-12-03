@@ -199,7 +199,7 @@ qpb_congrad_1p3A(qpb_spinor_field x, qpb_spinor_field b, qpb_double epsilon, int
   if(iters==max_iter)
     {
       error(" !\n");
-      error(" CG *did not* converge, after %d iterrations\n", iters);
+      error(" CG *did not* converge, after %d iterations\n", iters);
       error(" residual = %e, relative = %e, t = %g secs\n", res_norm, res_norm / b_norm, t);
       error(" !\n");
       return -1;

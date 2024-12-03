@@ -173,13 +173,13 @@ qpb_bicgg5(qpb_spinor_field x, qpb_spinor_field b, void * gauge,
   if(iters==max_iter)
     {
       error(" !\n");
-      error(" BiCGγ5 *did not* converge, after %d iterrations\n", iters);
+      error(" BiCGγ5 *did not* converge, after %d iterations\n", iters);
       error(" residual = %e, relative = %e, t = %g secs\n", res_norm, res_norm / b_norm, t);
       error(" !\n");
       return -1;
     }
 
-  print(" After %d iterrations BiCGγ5 converged\n", iters);
+  print(" After %d iterations BiCGγ5 converged\n", iters);
   print(" residual = %e, relative = %e, t = %g secs\n", res_norm, res_norm / b_norm, t);
   
   if(which_dslash_op == QPB_DSLASH_STANDARD)
