@@ -389,7 +389,6 @@ main(int argc, char *argv[])
   qpb_gauge_field_shift(gauge, shifts);
   print(" Min eigenvalue squared modification = %f\n", delta_min);
   print(" Max eigenvalue squared modification = %f\n", delta_max);
-  print("\n");
 
   /* Clover term */
   qpb_clover_term clover_term = qpb_clover_term_init();
@@ -432,6 +431,7 @@ main(int argc, char *argv[])
               Lanczos_epsilon, Lanczos_max_iters, N_Cheb, delta_max, delta_min);
   qpb_double t1 = qpb_stop_watch(t);
 
+  print("\n");
   for(int i=0; i<n_vec; i++)
     {
       qpb_spinor_field signX_squared = temp_vecs[0];

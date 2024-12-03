@@ -385,7 +385,6 @@ main(int argc, char *argv[])
   }
   print(" Min eigenvalue squared modification = %f\n", delta_min);
   print(" Max eigenvalue squared modification = %f\n", delta_max);
-  print("\n");
 
   /* Shift it */
   qpb_gauge_field_shift(apegauge, shifts);
@@ -433,6 +432,7 @@ main(int argc, char *argv[])
               Lanczos_epsilon, Lanczos_max_iters, N_Cheb, delta_max, delta_min);
   qpb_double t1 = qpb_stop_watch(t);
 
+  print("\n");
   for(int i=0; i<n_vec; i++)
     {
       qpb_spinor_field g5x = temp_vecs[0];
