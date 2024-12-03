@@ -225,16 +225,16 @@ main(int argc, char *argv[])
       exit(QPB_PARSER_ERROR);
     }
 
-  qpb_double epsilon;
-  if(sscanf(qpb_parse("Lanczos epsilon"), "%lf", &epsilon)!=1)
+  qpb_double Lanczos_epsilon;
+  if(sscanf(qpb_parse("Lanczos epsilon"), "%lf", &Lanczos_epsilon)!=1)
     {
       error("error parsing for %s\n",
 	    "Lanczos epsilon");
       exit(QPB_PARSER_ERROR);
     }
 
-  int max_iters;
-  if(sscanf(qpb_parse("Lanczos max iters"), "%d", &max_iters)!=1)
+  int Lanczos_max_iters;
+  if(sscanf(qpb_parse("Lanczos max iters"), "%d", &Lanczos_max_iters)!=1)
     {
       error("error parsing for %s\n",
 	    "Lanczos max iters");
@@ -322,8 +322,8 @@ main(int argc, char *argv[])
   print(" Clover param = %g\n", c_sw);
   print(" Number of Chebyshev terms = %d\n", N_Cheb);
   print(" BC in time = %g\n", timebc);
-  print(" Lanczos epsilon = %e\n", epsilon);
-  print(" Max Lanczos iters = %d\n", max_iters);
+  print(" Lanczos epsilon = %e\n", Lanczos_epsilon);
+  print(" Max Lanczos iters = %d\n", Lanczos_max_iters);
   switch(which_dslash_op)
     {
     case QPB_DSLASH_BRILLOUIN:
@@ -383,9 +383,8 @@ main(int argc, char *argv[])
   {
     qpb_gauge_field_copy(apegauge, gauge);
   }
-  print(" Min eigenvalue squared modification = %g\n", delta_min);
-  print(" Max eigenvalue squared modification = %g\n", delta_max);
-  print("\n");
+  print(" Min eigenvalue squared modification = %f\n", delta_min);
+  print(" Max eigenvalue squared modification = %f\n", delta_max);
 
   /* Shift it */
   qpb_gauge_field_shift(apegauge, shifts);
@@ -430,7 +429,7 @@ main(int argc, char *argv[])
 
   qpb_double t = qpb_stop_watch(0);
   qpb_overlap_Chebyshev_init(solver_arg_links, clover_term, rho, c_sw, mass,\
-                              epsilon, max_iters, N_Cheb, delta_max, delta_min);
+              Lanczos_epsilon, Lanczos_max_iters, N_Cheb, delta_max, delta_min);
   qpb_double t1 = qpb_stop_watch(t);
 
   for(int i=0; i<n_vec; i++)
