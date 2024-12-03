@@ -431,8 +431,8 @@ qpb_congrad_overlap_kl_sfrac(qpb_spinor_field x, qpb_spinor_field b, \
   qpb_spinor_field w = cg_temp_vecs[6];
   qpb_spinor_field bprime = cg_temp_vecs[7];
 
-  int n_reeval = 1000000;
-  int n_echo = 1;
+  int n_reeval = 100;
+  int n_echo = 100;
   int iters = 0;
 
   qpb_double res_norm, b_norm;
@@ -466,7 +466,7 @@ qpb_congrad_overlap_kl_sfrac(qpb_spinor_field x, qpb_spinor_field b, \
   {
     if(res_norm / b_norm <= CG_epsilon)
       {
-        print("CG stopped at relative residual: %e\n", res_norm / b_norm);
+        // print("CG stopped at relative residual: %e\n", res_norm / b_norm);
         break;
       }
 
