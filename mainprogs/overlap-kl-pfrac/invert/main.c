@@ -228,7 +228,15 @@ main(int argc, char *argv[])
 	    aux_string);
       exit(QPB_PARSER_ERROR);
     }
-
+  
+  qpb_double mass;
+  if(sscanf(qpb_parse("mass"), "%lf", &mass)!=1)
+    {
+      error("error parsing for %s\n",
+	    "mass");
+      exit(QPB_PARSER_ERROR);
+    }
+    
   qpb_double rho;
   if(sscanf(qpb_parse("rho"), "%lf", &rho)!=1)
     {
@@ -562,13 +570,6 @@ main(int argc, char *argv[])
       exit(QPB_PARSER_ERROR);
     };
 
-  qpb_double kappa;
-  if(sscanf(qpb_parse("kappa"), "%lf", &kappa)!=1)
-    {
-      error("error parsing for %s\n",
-	    "kappa");
-      exit(QPB_PARSER_ERROR);
-    }
   qpb_double c_sw;
   if(sscanf(qpb_parse("c_sw"), "%lf", &c_sw)!=1)
     {
@@ -716,8 +717,6 @@ main(int argc, char *argv[])
       break;
     }
 
-  qpb_double mass = 0.5/kappa - 4;
-
   print(" %s %s = %g\n", conf_smearing_name, conf_smearing_param_name, conf_smearing_param);
   print(" %s iterations = %d\n", conf_smearing_name, conf_smearing_niter);
   print(" Conf shifts = %d %d %d %d\n", shifts[0], shifts[1], shifts[2], shifts[3]);
@@ -731,7 +730,6 @@ main(int argc, char *argv[])
     print(" Dslash operator is Standard\n");
     break;
   }
-  print(" kappa = %g\n", kappa);
   print(" mass = %.2f\n", mass);  
   print(" Clover param = %g\n", c_sw);
   print(" rho = %.2f\n", rho);
