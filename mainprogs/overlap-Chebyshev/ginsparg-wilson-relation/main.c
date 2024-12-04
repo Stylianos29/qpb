@@ -450,13 +450,13 @@ main(int argc, char *argv[])
 
     /* Compute Dg5D on eta */
     qpb_overlap_Chebyshev(Dg5Dx, g5Dx);
-    qpb_spinor_field x = temp_vecs[4];
-    qpb_spinor_xpy(x, Dg5x, g5Dx);
-    qpb_spinor_xmy(x, x, Dg5Dx);
-    qpb_double x_norm, eta_norm;
-    qpb_spinor_xdotx(&x_norm, x);
+    qpb_spinor_field diff = temp_vecs[4];
+    qpb_spinor_xpy(diff, Dg5x, g5Dx);
+    qpb_spinor_xmy(diff, diff, Dg5Dx);
+    qpb_double diff_norm, eta_norm;
+    qpb_spinor_xdotx(&diff_norm, diff);
     qpb_spinor_xdotx(&eta_norm, eta[i]);
-    diffs[i] = x_norm/eta_norm;
+    diffs[i] = diff_norm/eta_norm;
     print(" Done vector = %d / %d, GW diff = %e\n", i+1, n_vec, diffs[i]);
   }
   t = qpb_stop_watch(t);
