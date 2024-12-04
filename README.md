@@ -1,58 +1,105 @@
-## Dependencies:
-* OpenMPI (mpicc)
-* C-lime (https://github.com/usqcd-software/c-lime)
-* GNU Autotools
-* GSL (GNU Scientific Library)
+# QCD Package Brillouin 
 
-## Instructions:
-* Clone 'qpb' project locally inside a directory of your preference, say
-  'qpb_build'.
-* Change to a different directory of your preference other than and outside
-  'qpb'.
-* Go to: https://github.com/usqcd-software/c-lime and clone C-lime locally.
-* Change directory to 'c-lime'.
-* Now you need to build C-lime:
-    - First do: ./autogen.sh
-        + If you get error: "line 3: autoreconf: command not found", then GNU
-          Autotools is not yet installed.
-        + If you get additional errors of the form "macro ... is obsolete", you
-          need first to run the "autoupdate" command from the terminal. Then run
-          again: ./autogen.sh. No output or warning means it run properly and,
-          among others,  a 'configure' binary file must now appear.
-    - Next you need to decide where to install C-lime such that 'qpb' can find
-      it easily. Suggestion: in an 'install' directory inside 'qpb', say
-      qpb_build/qpb/install/.
-    - Then set the a variable 'LIMEPREFIX' on the terminal to the FULL path of
-      the aforementioned 'install' directory.
-    - While still in the 'c-lime' directory, run: './configure
-      --prefix=$LIMEPREFIX CC=mpicc CFLAGS=-O3'.
+## Dependencies
+To build and use this project, you need the following dependencies installed:
+- **OpenMPI** (`mpicc`)
+- **C-lime** ([GitHub link](https://github.com/usqcd-software/c-lime))
+- **GNU Autotools**
+- **GSL** (GNU Scientific Library)
 
-        **NOTE** the use of 'mpicc'; 'gcc' will not work with QPB.
-    - Run 'make' and 'make install'. Ignore 'Nothing to be done for ...'
-      warnings. Now C-lime should have been installed properly.
-* Next, change directory back to qpb_build/qpb.
-* You need to choose which of the 'Makefile.in.<...>' files you prefer to link
-  with a generic 'Makefile.in' file (not constructed yet) to be used by the
-  Makefiles. You can run for example: 'ln -s Makefile.in.CYCLONE Makefile.in',
-  but you necessarily need to make sure that the 'CFLAGS' and 'LDFLAGS'
-  variables inside this file contain the correct full paths to the
-  'qpb/install/include/' and 'qpb/install/lib/' directories. After running the
-  command a 'Makefile.in' should appear.
-* Now you can run the Makefiles. Better though take things a step at a time;
-  let's first to change directory to 'qpb/lib/' and run 'make' there.
-    - If you get an error: './qpb_types.h:131:10: fatal error: gsl/gsl_rng.h: No
-      such file or directory', then GSL is not installed.
+---
 
-    It should take about 2 mins for the makefile to run for the first time
-    inside 'qpb/lib/'.
-* Finally, you need to change directory to one of the 'qpb/mainprogs' and run
-  make there to make ready all the 'mainprogs' programs, or change to one of the
-  'mainprogs' directories of your choice such as: 'overlap-kl' and run make
-  there.
-* Each 'mainprogs' directory contains a 'params.ini' file for controlling the
-  parameters of the program and for indicating the full path of the SU(3) gauge
-  links configurations file. An example of how to run one of these programs
-  using MPI is the following:
-~~~
-mpirun -n 8 --bind-to core --report-bindings ./ginsparg-wilson-relation geom=2,2,2 params.ini
-~~~
+## Setup Instructions
+
+### Step 1: Clone QPB Locally
+1. Clone this repository to a directory of your choice, e.g., `qpb_build/`.
+   ```bash
+   git clone <qpb-repository-link> qpb_build/
+   ```
+2. Navigate to a directory of your choice **other than and outside**
+   `qpb_build/qpb/` (the root directory of the QPB project) for the next steps.
+
+### Step 2: Install C-lime
+1. Clone the C-lime repository:
+   ```bash
+   git clone https://github.com/usqcd-software/c-lime.git
+   cd c-lime
+   ```
+2. Build and install C-lime: 
+* Run:
+   ```bash
+   ./autogen.sh
+   ```
+   * If successful, this command will generate additional files, including a
+     `configure` script.
+   ### Troubleshooting:
+   * If you see an error like `autoreconf: command not found`, install GNU
+     Autotools.
+   * If you encounter `macro ... is obsolete`, run:
+   ```bash
+   autoupdate
+   ```
+   * Once the issue is resolved, rerun:
+   ```bash
+   ./autogen.sh
+   ```
+* Decide on an installation directory inside `qpb/`, e.g.,
+  `qpb_build/qpb/install/`, and set the `LIMEPREFIX` variable.  
+  **NOTE:** Avoid using `qpb_build/qpb/` as the installation directory to
+  prevent conflicts and the risk of overwriting important files. It’s
+  recommended to build in a separate directory from the source to maintain a
+  clean and organized project structure.
+   ```bash
+   export LIMEPREFIX=<full-path-to-install-directory>
+   ```
+* Configure and build using the MPI compiler `mpicc` (do not use `gcc` to avoid
+  compatibility issues with the `qpb` project):
+   ```bash
+   ./configure --prefix=$LIMEPREFIX CC=mpicc CFLAGS=-O3
+   make
+   make install
+   ```
+
+### Step 3: Configure QPB
+1. Navigate to the QPB directory:
+   ```bash
+   cd qpb_build/qpb
+   ```
+2. Choose a `Makefile.in.<...>` file (e.g., `Makefile.in.CYCLONE`) and link it:
+   ```bash
+   ln -s Makefile.in.CYCLONE Makefile.in
+   ```
+   **Note:** Ensure `CFLAGS` and `LDFLAGS` in this file point correspondingly
+   to:
+   * `qpb/install/include/`
+   * `qpb/install/lib/`
+
+### Step 4: Build QPB
+1. Build the *library*:
+   ```bash
+   cd qpb/lib
+   make
+   ```
+   #### Troubleshooting:
+   If you see `fatal error: gsl/gsl_rng.h: No such file or directory`, install
+   GSL.
+
+2. Build *main programs*:
+   ```bash
+   cd qpb/mainprogs
+   make
+   ```
+
+### Step 5: Running QPB Programs
+
+1. Navigate to a `mainprogs` directory (e.g., `overlap-kl/ginsparg-wilson-relation`) and modify the `params.ini` file as needed. For more information on filling in the parameters file, consult the guide (N/A yet).  
+   <!-- TODO: Guide for filling in the parameters files -->
+
+2. Run the program with MPI (if supported). For example, using `mpirun`:
+   ```bash
+   mpirun -n 8 --bind-to core --report-bindings ./ginsparg-wilson-relation geom=2,2,2 params.ini
+   ```
+   Alternatively, you can use `srun`:
+   ```bash
+   srun -n 8 ./ginsparg-wilson-relation geom=2,2,2 params.ini
+   ```
