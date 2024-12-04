@@ -350,14 +350,14 @@ qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b, \
   {
     error(" !\n");
     error(" CG *did not* converge, after %d iterations\n", iters);
-    error(" residual = %e, relative = %e, t = %g secs\n", res_norm, \
+    error(" residual = %e, relative = %e, t = %g sec\n", res_norm, \
                                                       res_norm / b_norm, t);
     error(" !\n");
     return -1;
   }
 
   print(" \tAfter %d iters, CG converged, res = %e, relative = %e, "
-        "t = %g secs\n",
+        "t = %g sec\n",
          iters, res_norm, res_norm / b_norm, t);
   
   return iters;

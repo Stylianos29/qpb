@@ -353,14 +353,14 @@ qpb_congrad_qnn_X2(qpb_spinor_field x, qpb_spinor_field b)
   {
     error(" !\n");
     error(" q_nn CG *did not* converge, after %d iterations\n", iters);
-    error(" residual = %e, relative = %e, t = %g secs\n", res_norm,\
+    error(" residual = %e, relative = %e, t = %g sec\n", res_norm,\
                                                         res_norm / b_norm, t);
     error(" !\n");
     return -1;
   }
 
   // print(" \tAfter %d iters, q_nn CG converged, res = %e, "
-  //         "relative = %e, t = %g secs\n",
+  //         "relative = %e, t = %g sec\n",
   //          iters, res_norm, res_norm / b_norm, t);
   
   return iters;
@@ -519,14 +519,14 @@ qpb_congrad_overlap_kl_sfrac(qpb_spinor_field x, qpb_spinor_field b, \
   {
     error(" !\n");
     error(" CG *did not* converge, after %d iterations\n", iters);
-    error(" residual = %e, relative = %e, t = %g secs\n", res_norm, \
+    error(" residual = %e, relative = %e, t = %g sec\n", res_norm, \
                                                         res_norm / b_norm, t);
     error(" !\n");
     return -1;
   }
 
   print(" \tAfter %d iters, CG converged, res = %e, "
-            "relative = %e, t = %g secs\n",
+            "relative = %e, t = %g sec\n",
              iters, res_norm, res_norm / b_norm, t);
 
   return iters;
@@ -660,14 +660,14 @@ qpb_congrad_aqnn_plus_bDpnn(qpb_spinor_field x, \
   {
     error(" !\n");
     error(" CG *did not* converge, after %d iterations\n", iters);
-    error(" residual = %e, relative = %e, t = %g secs\n", res_norm, \
+    error(" residual = %e, relative = %e, t = %g sec\n", res_norm, \
                                                         res_norm / b_norm, t);
     error(" !\n");
     return -1;
   }
 
   printf(" \tAfter %d iters, CG converged, res = %e, "
-          "relative = %e, t = %g secs\n",
+          "relative = %e, t = %g sec\n",
            iters, res_norm, res_norm / b_norm, t);
 
   return iters;
