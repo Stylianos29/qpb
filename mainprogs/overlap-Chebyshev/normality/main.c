@@ -453,13 +453,15 @@ main(int argc, char *argv[])
     /* Compute D on g5Dg5 */
     qpb_overlap_Chebyshev(Dg5Dg5x, g5Dg5x);
     
-    qpb_spinor_field x = temp_vecs[2];
-    qpb_spinor_xmy(x, Dg5Dg5x, g5Dg5Dx);
-    qpb_double x_norm, eta_norm;
-    qpb_spinor_xdotx(&x_norm, x);
+    qpb_spinor_field diff = temp_vecs[2];
+    qpb_spinor_xmy(diff, Dg5Dg5x, g5Dg5Dx);
+    qpb_double diff_norm, eta_norm;
+    qpb_spinor_xdotx(&diff_norm, diff);
     qpb_spinor_xdotx(&eta_norm, eta[i]);
-    print(" Done vector = %d / %d, ||[D^+D, DD^+]|| = %e\n", i+1, n_vec, x_norm/eta_norm);
-    diffs[i] = x_norm/eta_norm/pow(rho-mass/2., 4);
+    // diffs[i] = diff_norm/eta_norm;
+    // Or make the result independent of rho and bare mass
+    diffs[i] = diff_norm/eta_norm/pow(rho-mass/2., 4);
+    print(" Done vector = %d / %d, ||[D^+D, DD^+]|| = %e\n", i+1, n_vec, diffs[i]);
   }
   t = qpb_stop_watch(t);
 
