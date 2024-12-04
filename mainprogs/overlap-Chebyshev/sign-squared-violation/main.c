@@ -429,7 +429,8 @@ main(int argc, char *argv[])
   qpb_double t = qpb_stop_watch(0);
   qpb_overlap_Chebyshev_init(solver_arg_links, clover_term, rho, c_sw, mass,\
               Lanczos_epsilon, Lanczos_max_iters, N_Cheb, delta_max, delta_min);
-  qpb_double t1 = qpb_stop_watch(t);
+  qpb_double t_overhead = qpb_stop_watch(t);
+  // print(" Total overhead time: %f sec\n", t_overhead);
 
   for(int i=0; i<n_vec; i++)
   {
