@@ -320,19 +320,20 @@ qpb_overlap_Chebyshev_init(void *gauge, qpb_clover_term clover, qpb_double rho,\
     int Lanczos_iters = qpb_extreme_eigenvalues_of_X_squared(&min_eigv_squared,\
                       &max_eigv_squared, Lanczos_epsilon, Lanczos_max_iters);
     // print(" Total number of Lanczos algorithm iterations = %d\n", \
-                                                                // Lanczos_iters);
+                                                                Lanczos_iters);
+    /* If requested the extreme eigenvalues are modified accordingly */
+    if (delta_min != 1.0)
+      min_eigv_squared *= delta_min;
+    if (delta_max != 1.0)
+      max_eigv_squared *= delta_max;
+    
+    print(" Min eigenvalue squared = %.16f\n", min_eigv_squared);
+    print(" Max eigenvalue squared = %.16f\n", max_eigv_squared);
+
     /* And then their square root value is stored inside the 'min_eigv' and
     'max_eigv' attributes of the 'ov_params' struct. */
-    ov_params.min_eigv = sqrt(min_eigv_squared*delta_min);
-    ov_params.max_eigv = sqrt(max_eigv_squared*delta_max);
-
-    // print("\tExtrema of the eigenvalues spectrum:\n\
-    //           \talpha = %.16f, beta = %.16f\n",\
-    //                                   ov_params.min_eigv, ov_params.max_eigv);
-    print(" Min eigenvalue squared = %.16f\n", \
-                                        ov_params.min_eigv*ov_params.min_eigv);
-    print(" Max eigenvalue squared = %.16f\n", \
-                                        ov_params.max_eigv*ov_params.max_eigv);
+    ov_params.min_eigv = sqrt(min_eigv_squared);
+    ov_params.max_eigv = sqrt(max_eigv_squared);
 
     /* ----------------------- expansion coefficients ----------------------- */
 
@@ -838,13 +839,13 @@ qpb_congrad_overlap_Chebyshev(qpb_spinor_field x, qpb_spinor_field b,\
   {
     error(" !\n");
     error(" CG *did not* converge, after %d iterations\n", iters);
-    error(" residual = %e, relative = %.25e, t = %g secs\n", res_norm, res_norm / b_norm, t);
+    error(" residual = %e, relative = %.25e, t = %g sec\n", res_norm, res_norm / b_norm, t);
     error(" !\n");
     return -1;
   }
 
   print(" \tAfter %d iters, CG converged, res = %e, relative = %e, "
-        "t = %g secs\n",
+        "t = %g sec\n",
          iters, res_norm, res_norm / b_norm, t);
 
   return iters;
@@ -950,14 +951,14 @@ qpb_congrad_overlap_Chebyshev_TEST(qpb_spinor_field x, qpb_spinor_field b,\
   {
     error(" !\n");
     error(" CG *did not* converge, after %d iterations\n", iters);
-    error(" residual = %e, relative = %e, t = %g secs\n", res_norm,\
+    error(" residual = %e, relative = %e, t = %g sec\n", res_norm,\
                                                         res_norm / b_norm, t);
     error(" !\n");
     return -1;
   }
 
   print(" \tAfter %d iters, CG converged, res = %e, relative = %e, "
-        "t = %g secs\n",
+        "t = %g sec\n",
          iters, res_norm, res_norm / b_original_norm, t);
 
   return iters;
@@ -1043,13 +1044,13 @@ qpb_bicgstab_overlap_Chebyshev(qpb_spinor_field x, qpb_spinor_field b,\
     {
       error(" !\n");
       error(" BiCGStab *did not* converge, after %d iterations\n", iters);
-      error(" residual = %e, relative = %e, t = %g secs\n", res_norm, res_norm / b_norm, t);
+      error(" residual = %e, relative = %e, t = %g sec\n", res_norm, res_norm / b_norm, t);
       error(" !\n");
       return -1;
     }
 
   print(" \tAfter %d iterations BiCGStab converged\n", iters);
-  print(" residual = %e, relative = %e, t = %g secs\n", res_norm, res_norm / b_norm, t);
+  print(" residual = %e, relative = %e, t = %g sec\n", res_norm, res_norm / b_norm, t);
   
   return iters;
 }
