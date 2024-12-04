@@ -43,8 +43,9 @@ To build and use this project, you need the following dependencies installed:
    ```bash
    ./autogen.sh
    ```
-* Decide on an installation directory inside `qpb/`, e.g.,
-  `qpb_build/qpb/install/`, and set the `LIMEPREFIX` variable.  
+
+* Choose an installation directory within `qpb/`, such as a new directory like
+  `qpb_build/qpb/install/`, and set the `LIMEPREFIX` variable.
   **NOTE:** Avoid using `qpb_build/qpb/` as the installation directory to
   prevent conflicts and the risk of overwriting important files. It’s
   recommended to build in a separate directory from the source to maintain a
