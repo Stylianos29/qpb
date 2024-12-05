@@ -6,6 +6,7 @@ To build and use this project, you need the following dependencies installed:
 - **C-lime** ([GitHub link](https://github.com/usqcd-software/c-lime))
 - **GNU Autotools**
 - **GSL** (GNU Scientific Library)
+- **SymPy** Python library
 
 ---
 
@@ -43,7 +44,6 @@ To build and use this project, you need the following dependencies installed:
    ```bash
    ./autogen.sh
    ```
-
 * Choose an installation directory within `qpb/`, such as a new directory like
   `qpb_build/qpb/install/`, and set the `LIMEPREFIX` variable.
   **NOTE:** Avoid using `qpb_build/qpb/` as the installation directory to
@@ -71,7 +71,7 @@ To build and use this project, you need the following dependencies installed:
    ln -s Makefile.in.CYCLONE Makefile.in
    ```
    **Note:** Ensure `CFLAGS` and `LDFLAGS` in this file point correspondingly
-   to:
+   to the **full paths** of:
    * `qpb/install/include/`
    * `qpb/install/lib/`
 
