@@ -46,11 +46,11 @@ installed:
    ./autogen.sh
    ```
 * Choose an installation directory within `qpb/`, such as a new directory like
-  `qpb_build/qpb/install/`, and set the `LIMEPREFIX` variable.
-  **NOTE:** Avoid using `qpb_build/qpb/` as the installation directory to
-  prevent conflicts and the risk of overwriting important files. It’s
-  recommended to build in a separate directory from the source to maintain a
-  clean and organized project structure.
+  `qpb_build/qpb/install/`, and set the `LIMEPREFIX` variable. **NOTE:** Avoid
+  using `qpb_build/qpb/` as the installation directory to prevent conflicts and
+  the risk of overwriting important files. It’s recommended to build in a
+  separate directory from the source to maintain a clean and organized project
+  structure.
    ```bash
    export LIMEPREFIX=<full-path-to-install-directory>
    ```
@@ -71,8 +71,8 @@ installed:
    ```bash
    ln -s Makefile.in.CYCLONE Makefile.in
    ```
-   **Note:** Ensure `CFLAGS` and `LDFLAGS` in this file point correspondingly
-   to the **full paths** of:
+   **Note:** Ensure `CFLAGS` and `LDFLAGS` in this file point correspondingly to
+   the **full paths** of:
    * `qpb/install/include/`
    * `qpb/install/lib/`
 
@@ -91,18 +91,27 @@ installed:
    make
    ```  
    #### Troubleshooting:
-   Errors or warnings during either step are unacceptable and require restarting the setup process from the beginning. Before restarting:
-   1. **Verify Dependencies**: Ensure all required dependencies are installed and properly linked to the Makefiles.
-   2. **Timestamp Conflicts**: If issues persist, particularly with newer Python versions, updating timestamps before rebuilding the library may help:
+   Errors or warnings during either step are unacceptable and require restarting
+   the setup process from the beginning. Before restarting:
+   1. **Verify Dependencies**: Ensure all required dependencies are installed
+      and properly linked to the Makefiles.
+   2. **Timestamp Conflicts**: If issues persist, updating timestamps before
+      rebuilding the library may help:
       ```bash
       cd qpb/lib
       touch *
-      ```
-   3. Once these checks are complete, repeat the setup process from the beginning.
+      ```  
+      **Note:** This step has been observed to resolve issues potentially
+      related to newer SymPy versions, but the exact cause may vary.
+   3. Once these checks are complete, repeat the setup process from the
+      beginning.
 
 ### Step 5: Running QPB Programs
 
-1. Navigate to a `mainprogs` directory (e.g., `overlap-kl/ginsparg-wilson-relation`) and modify the `params.ini` file as needed. For more information on filling in the parameters file, consult the guide (N/A yet).  
+1. Navigate to a `mainprogs` directory (e.g.,
+   `overlap-kl/ginsparg-wilson-relation`) and modify the `params.ini` file as
+   needed. For more information on filling in the parameters file, consult the
+   guide (N/A yet).  
    <!-- TODO: Guide for filling in the parameters files -->
 2. Run the program with MPI (if supported). For example, using `mpirun`:
    ```bash
