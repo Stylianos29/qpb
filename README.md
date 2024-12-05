@@ -1,7 +1,8 @@
 # QCD Package Brillouin 
 
 ## Dependencies
-To build and use this project, you need the following dependencies installed:
+To build and use this project, you **need** the following dependencies
+installed:
 - **OpenMPI** (`mpicc`)
 - **C-lime** ([GitHub link](https://github.com/usqcd-software/c-lime))
 - **GNU Autotools**
@@ -84,18 +85,25 @@ To build and use this project, you need the following dependencies installed:
    #### Troubleshooting:
    If you see `fatal error: gsl/gsl_rng.h: No such file or directory`, install
    GSL.
-
 2. Build *main programs*:
    ```bash
    cd qpb/mainprogs
    make
-   ```
+   ```  
+   #### Troubleshooting:
+   Errors or warnings during either step are unacceptable and require restarting the setup process from the beginning. Before restarting:
+   1. **Verify Dependencies**: Ensure all required dependencies are installed and properly linked to the Makefiles.
+   2. **Timestamp Conflicts**: If issues persist, particularly with newer Python versions, updating timestamps before rebuilding the library may help:
+      ```bash
+      cd qpb/lib
+      touch *
+      ```
+   3. Once these checks are complete, repeat the setup process from the beginning.
 
 ### Step 5: Running QPB Programs
 
 1. Navigate to a `mainprogs` directory (e.g., `overlap-kl/ginsparg-wilson-relation`) and modify the `params.ini` file as needed. For more information on filling in the parameters file, consult the guide (N/A yet).  
    <!-- TODO: Guide for filling in the parameters files -->
-
 2. Run the program with MPI (if supported). For example, using `mpirun`:
    ```bash
    mpirun -n 8 --bind-to core --report-bindings ./ginsparg-wilson-relation geom=2,2,2 params.ini
@@ -104,3 +112,4 @@ To build and use this project, you need the following dependencies installed:
    ```bash
    srun -n 8 ./ginsparg-wilson-relation geom=2,2,2 params.ini
    ```
+   
