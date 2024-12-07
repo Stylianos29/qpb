@@ -42,3 +42,7 @@ mainprogs/overlap-kl-pfrac/sign-squared-violation/sign-squared-violation
 
 */*/qpb_parameters_scan_files/
 */*/*/qpb_parameters_scan_files/
+
+*/mesons/batch_processing_invert_solutions/*
+*/*/mesons/batch_processing_invert_solutions/*
+
