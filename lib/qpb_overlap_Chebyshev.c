@@ -319,7 +319,7 @@ qpb_overlap_Chebyshev_init(void *gauge, qpb_clover_term clover, qpb_double rho,\
     'min_eigv_squared' and 'max_eigv_squared'variables correspondingly. */
     int Lanczos_iters = qpb_extreme_eigenvalues_of_X_squared(&min_eigv_squared,\
                       &max_eigv_squared, Lanczos_epsilon, Lanczos_max_iters);
-    // print(" Total number of Lanczos algorithm iterations = %d\n", \
+    print(" Total number of Lanczos algorithm iterations = %d\n", \
                                                                 Lanczos_iters);
     /* If requested the extreme eigenvalues are modified accordingly */
     if (delta_min != 1.0)
