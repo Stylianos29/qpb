@@ -1,4 +1,4 @@
-# QCD Package Brillouin 
+# QCD Package for Brillouin improved fermions
 
 ## Dependencies
 To build and use this project, you **need** the following dependencies
