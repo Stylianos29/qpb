@@ -27,6 +27,7 @@
 #include <qpb_comm_halo_spinor_field.h>
 #include <qpb_gauge_field.h>
 #include <qpb_overlap_kl.h>
+#include <qpb_bare_op.h>
 #include <qpb_overlap_Chebyshev.h>
 #include <qpb_overlap_Chebyshev_defs.h>
 #include <qpb_overlap_kl_sfrac.h>
