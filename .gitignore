@@ -22,9 +22,15 @@ testprogs/source_rms/source_rms
 
 install/*
 
+mainprogs/*/run.sh
+mainprogs/*/test.txt
+mainprogs/*/test.err
+
 mainprogs/*/*/run.sh
 mainprogs/*/*/test.txt
 mainprogs/*/*/test.err
+
+mainprogs/ginsparg-wilson-relation/ginsparg-wilson-relation
 
 mainprogs/overlap-Chebyshev/ginsparg-wilson-relation/ginsparg-wilson-relation
 mainprogs/overlap-Chebyshev/invert/invert
@@ -45,4 +51,3 @@ mainprogs/overlap-kl-pfrac/sign-squared-violation/sign-squared-violation
 
 */mesons/batch_processing_invert_solutions/*
 */*/mesons/batch_processing_invert_solutions/*
-
