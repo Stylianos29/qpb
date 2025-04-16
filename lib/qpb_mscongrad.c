@@ -50,14 +50,14 @@ qpb_mscongrad(qpb_spinor_field *x, qpb_spinor_field b, void * gauge,
 	      qpb_double c_sw, qpb_double epsilon, int max_iter)
 {
   int iters = 0;
-  const int n_echo = 10, n_reeval = 100, n_check_conerged = 100000;
+  const int n_echo = 10, n_reeval = 100, n_check_converged = 10;
 
   qpb_spinor_field r = mscongrad_temp_vecs[0];
   qpb_spinor_field y = mscongrad_temp_vecs[1];
   qpb_spinor_field w = mscongrad_temp_vecs[2];
 
   /*
-   *  Sort shifts in assending order
+   *  Sort shifts in ascending order
    */
   for(int i=0; i<numb_shifts; i++){
     for(int j=i; j<numb_shifts; j++){
@@ -169,12 +169,14 @@ qpb_mscongrad(qpb_spinor_field *x, qpb_spinor_field b, void * gauge,
 
   /* 
      Tracks whether we've converged for each 
-     shift indipendantly
+     shift independently
   */
   int converged[ns];
   for(int s=0; s<ns; s++)
     converged[s] = 0;
-
+  
+  int dslash_count = 0;
+  
   qpb_double t = qpb_stop_watch(0);
   for(iters=1; iters<max_iter; iters++)
     {
@@ -187,7 +189,9 @@ qpb_mscongrad(qpb_spinor_field *x, qpb_spinor_field b, void * gauge,
       /*
        * D^+ D on p[0] and add min(shift)
        */
+      dslash_count+=1;
       dslash_func(w, p, dslash_args);
+      dslash_count+=1;
       dslash_func(y, w, dslash_args);
 
       qpb_spinor_axpy(w, c_sigma0, p, y);
@@ -207,6 +211,8 @@ qpb_mscongrad(qpb_spinor_field *x, qpb_spinor_field b, void * gauge,
 	  qpb_complex c3 = CMUL(zeta_s[s][0], CMUL(beta0, (CSUB(one, CMUL(c_sigmas[s], beta1)))));
 	  
 	  zeta_s[s][2] = CDEV(c1, (CADD(c2, c3)));
+    if (CNORM2(zeta_s[s][2]) == 0)
+      converged[s] = 1;
 	  beta_s[s] = CMUL(beta1, CDEV(zeta_s[s][2], zeta_s[s][1]));
 	  
 	  /*** 
@@ -223,8 +229,10 @@ qpb_mscongrad(qpb_spinor_field *x, qpb_spinor_field b, void * gauge,
        */
       if(iters % n_reeval == 0)
 	{
-	  dslash_func(w, x[0], dslash_args);
-	  dslash_func(y, w, dslash_args);
+	  dslash_count+=1;
+    dslash_func(w, x[0], dslash_args);
+	  dslash_count+=1;
+    dslash_func(y, w, dslash_args);
 	  qpb_spinor_axpy(y, c_sigma0, x[0], y);
 	  qpb_spinor_xmy(r, b, y);
 	}
@@ -260,8 +268,9 @@ qpb_mscongrad(qpb_spinor_field *x, qpb_spinor_field b, void * gauge,
       /*
 	Check if one of the shifts has converged
        */
-      // if(iters % n_check_conerged == 0)
-	for(int s=0; s<ns; s++)
+      if(iters % n_check_converged == 0)
+	// Check from largest to smallest
+	for(int s=ns-1; s>=0; s--)
 	  if(!converged[s])
 	    {
 	      qpb_double p_norm;
@@ -270,21 +279,26 @@ qpb_mscongrad(qpb_spinor_field *x, qpb_spinor_field b, void * gauge,
 		// {
 		  qpb_complex shift = (qpb_complex){sigmas[s+1], 0.};
 		  qpb_double res_s;
-		  dslash_func(y, x[s+1], dslash_args);
-		  dslash_func(w, y, dslash_args);
+		  dslash_count+=1;
+      dslash_func(y, x[s+1], dslash_args);
+		  dslash_count+=1;
+      dslash_func(w, y, dslash_args);
 		  qpb_spinor_axpy(w, shift, x[s+1], w);
 		  qpb_spinor_xmy(y, b, w);
 		  qpb_spinor_xdotx(&res_s, y);
 		  if(res_s / b_norm <= epsilon)
 		    converged[s] = 1;
-		  
+      else
+        break;
 		// }	    
 	    }
     }
   t = qpb_stop_watch(t);
   qpb_double res_s[ns];
 
+  dslash_count+=1;
   dslash_func(y, x[0], dslash_args);
+  dslash_count+=1;
   dslash_func(w, y, dslash_args);
   qpb_spinor_axpy(w, c_sigma0, x[0], w);
   qpb_spinor_xmy(r, b, w);
@@ -292,7 +306,9 @@ qpb_mscongrad(qpb_spinor_field *x, qpb_spinor_field b, void * gauge,
   for(int s=0; s<ns; s++)
     {
       qpb_complex shift = (qpb_complex){sigmas[s+1], 0.};
+      dslash_count+=1;
       dslash_func(y, x[s+1], dslash_args);
+      dslash_count+=1;
       dslash_func(w, y, dslash_args);
       qpb_spinor_axpy(w, shift, x[s+1], w);
       qpb_spinor_xmy(r, b, w);
@@ -309,6 +325,7 @@ qpb_mscongrad(qpb_spinor_field *x, qpb_spinor_field b, void * gauge,
     }
 
   print(" After %d iterations msCG converged, t = %g secs\n", iters, t);
+  print(" Total number of dslash applications %d\n", dslash_count);
   print(" Shift = %10g, residual = %e, relative = %e\n", sigmas[0], res_norm, res_norm / b_norm);
   for(int s=0; s<ns; s++)
     print(" Shift = %10g, residual = %e, relative = %e\n", sigmas[s+1], res_s[s], res_s[s] / b_norm);
