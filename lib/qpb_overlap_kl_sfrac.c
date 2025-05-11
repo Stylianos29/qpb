@@ -433,7 +433,7 @@ qpb_congrad_overlap_kl_sfrac(qpb_spinor_field x, qpb_spinor_field b, \
   qpb_spinor_field bprime = cg_temp_vecs[7];
 
   int n_reeval = 100;
-  int n_echo = 100;
+  int n_echo = 10;
   int iters = 0;
 
   qpb_double res_norm, b_norm;
@@ -525,9 +525,9 @@ qpb_congrad_overlap_kl_sfrac(qpb_spinor_field x, qpb_spinor_field b, \
     return -1;
   }
 
-  print(" \tAfter %d iters, CG converged, res = %e, "
-            "relative = %e, t = %g sec\n",
-             iters, res_norm, res_norm / b_norm, t);
+  // print(" \tAfter %d iters, CG converged, res = %e, "
+  //           "relative = %e, t = %g sec\n",
+  //            iters, res_norm, res_norm / b_norm, t);
 
   return iters;
 }
