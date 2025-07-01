@@ -535,12 +535,8 @@ qpb_congrad_overlap_kl_sfrac(qpb_spinor_field x, qpb_spinor_field b, \
 /* --------------------- IMPLEMENTING MULTIPLY-UP TRICK --------------------- */
 
 void
-gamma5_aqnn_plus_bDpnn_op(qpb_spinor_field y, qpb_spinor_field x)
+aQnn_gamma5_plus_bX_Pnn_op(qpb_spinor_field y, qpb_spinor_field x)
 {
-  /* Implements:
-   y = (rho+overlap_mass/2)*q_{nn}(X^2(x)) 
-                                  + (rho-overlap_mass/2)*γ5(X(p_{nn}(X^2(x))))
-  */
 
   qpb_spinor_field z = ov_temp_vecs[8];
   qpb_spinor_field w = ov_temp_vecs[9];
@@ -552,8 +548,34 @@ gamma5_aqnn_plus_bDpnn_op(qpb_spinor_field y, qpb_spinor_field x)
   qpb_complex b = {rho - 0.5*overlap_mass, 0.};
 
   pnn_X2_op(y, x);
-  // z = γ5(X(y)) = (D - rho*I)(y)
   D_op(z, y);
+  qpb_spinor_gamma5(z, z);
+
+  qpb_spinor_gamma5(y, x);
+  qnn_X2_op(w, y);
+
+  qpb_spinor_axpby(y, a, w, b, z);
+
+  return;
+}
+
+
+void
+conjugate_aQnn_gamma5_plus_bX_Pnn_op(qpb_spinor_field y, qpb_spinor_field x)
+{
+
+  qpb_spinor_field z = ov_temp_vecs[8];
+  qpb_spinor_field w = ov_temp_vecs[9];
+
+  qpb_double overlap_mass = ov_params.mass; // Overlap operator Dov,m mass
+  qpb_double rho = ov_params.rho;
+
+  qpb_complex a = {rho + 0.5*overlap_mass, 0.};
+  qpb_complex b = {rho - 0.5*overlap_mass, 0.};
+
+  pnn_X2_op(y, x);
+  D_op(z, y);
+  qpb_spinor_gamma5(z, z);
 
   qnn_X2_op(y, x);
   qpb_spinor_gamma5(w, y);
@@ -583,16 +605,16 @@ qpb_congrad_aqnn_plus_bDpnn(qpb_spinor_field x, \
   qpb_complex_double beta, gamma;
 
   // bprime = Dov^+ b
-  qpb_spinor_gamma5(w, b);
-  gamma5_aqnn_plus_bDpnn_op(bprime, w);
+  // qpb_spinor_gamma5(w, b);
+  conjugate_aQnn_gamma5_plus_bX_Pnn_op(bprime, b);
 
   qpb_spinor_xdotx(&b_norm, bprime);
   
   qpb_spinor_field_set_zero(x);
 
   /* r0 = bprime - A(x) */
-  // gamma5_aqnn_plus_bDpnn_op(w, x);
-  // gamma5_aqnn_plus_bDpnn_op(p, w);
+  // aQnn_gamma5_plus_bX_Pnn_op(w, x);
+  // conjugate_aQnn_gamma5_plus_bX_Pnn_op(p, w);
   // qpb_spinor_xmy(r, bprime, p);
 
   /* Or r0 = bprime for short since x0=0 */
@@ -614,8 +636,8 @@ qpb_congrad_aqnn_plus_bDpnn(qpb_spinor_field x, \
     }
 
     /* y = A(p) */
-    gamma5_aqnn_plus_bDpnn_op(w, p);
-    gamma5_aqnn_plus_bDpnn_op(y, w);
+    aQnn_gamma5_plus_bX_Pnn_op(w, p);
+    conjugate_aQnn_gamma5_plus_bX_Pnn_op(y, w);
 
     /* omega = dot(p, A(p)) */
     qpb_spinor_xdoty(&omega, p, y);
@@ -628,8 +650,8 @@ qpb_congrad_aqnn_plus_bDpnn(qpb_spinor_field x, \
 
     if(iters % n_reeval == 0) 
     {
-      gamma5_aqnn_plus_bDpnn_op(w, x);
-      gamma5_aqnn_plus_bDpnn_op(y, w);
+      aQnn_gamma5_plus_bX_Pnn_op(w, x);
+      conjugate_aQnn_gamma5_plus_bX_Pnn_op(y, w);
       qpb_spinor_xmy(r, bprime, y);
 	  }
     else
@@ -651,8 +673,8 @@ qpb_congrad_aqnn_plus_bDpnn(qpb_spinor_field x, \
 
   t = qpb_stop_watch(t);
 
-  gamma5_aqnn_plus_bDpnn_op(w, x);
-  gamma5_aqnn_plus_bDpnn_op(y, w);
+  aQnn_gamma5_plus_bX_Pnn_op(w, x);
+  conjugate_aQnn_gamma5_plus_bX_Pnn_op(y, w);
   qpb_spinor_xmy(r, bprime, y);
   qpb_spinor_xdotx(&res_norm, r);
 
@@ -680,6 +702,7 @@ qpb_congrad_overlap_kl_sfrac_multiply_up(qpb_spinor_field x, \
 {
   qpb_spinor_field b_prime = ov_temp_vecs[10];
 
+  qpb_spinor_gamma5(b, b);
   qnn_X2_op(b_prime, b);
 
   qpb_congrad_aqnn_plus_bDpnn(x, b_prime, CG_epsilon, CG_max_iter);
