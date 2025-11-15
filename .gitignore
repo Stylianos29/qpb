@@ -40,9 +40,16 @@ mainprogs/overlap-kl-pfrac/normality/normality
 mainprogs/overlap-kl-pfrac/sign-squared-values/sign-squared-values
 mainprogs/overlap-kl-pfrac/sign-squared-violation/sign-squared-violation
 
+mainprogs/overlap-Neuberger/invert/invert
+mainprogs/overlap-Neuberger/sign-squared-violation/sign-squared-violation
+
+mainprogs/overlap-Zolotarev/invert/invert
+mainprogs/overlap-Zolotarev/sign-squared-violation/sign-squared-violation
+
 */*/qpb_parameters_scan_files/
 */*/*/qpb_parameters_scan_files/
 
 */mesons/batch_processing_invert_solutions/*
 */*/mesons/batch_processing_invert_solutions/*
 
+.vscode/settings.json

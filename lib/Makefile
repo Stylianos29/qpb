@@ -79,6 +79,8 @@ SOURCES = qpb_init\
 	qpb_overlap_Chebyshev\
 	qpb_overlap_kl_sfrac\
 	qpb_overlap_kl_pfrac\
+	qpb_overlap_Zolotarev\
+	qpb_overlap_Neuberger\
 	qpb_bicgg5\
 	qpb_lanczos\
 	qpb_dslash_wrappers\

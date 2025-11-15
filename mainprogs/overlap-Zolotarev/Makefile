@@ -1,4 +1,4 @@
-include ../Makefile.in
+include ../../Makefile.in
 
 ifndef V
        V = 0
@@ -13,7 +13,7 @@ else
 	MAKE += --no-print-directory
 endif
 
-DIRS = gauge-smear invert mesons eigens baryons overlap-kl multiq overlap-Chebyshev overlap-kl-pfrac overlap-Neuberger overlap-Zolotarev
+DIRS = invert sign-squared-violation
 
 all: 
 	-$(C)for d in $(DIRS); do ($(MAKE) -C $$d); done

@@ -1,6 +1,8 @@
 #ifndef _QPB_KL_DEFS_H
 #define _QPB_KL_DEFS_H 1
+
 #include <qpb_types.h>
+
 enum qpb_kl_classes {
   KL_CLASS_11
 };
@@ -17,5 +19,8 @@ typedef struct {
   void (* dslash_op)(qpb_spinor_field, qpb_spinor_field, void **);
   void (* g5_dslash_op)(qpb_spinor_field, qpb_spinor_field, void **);
   qpb_double mass;
+  qpb_double min_eigv;
+  qpb_double max_eigv;
 } qpb_overlap_params;
+
 #endif /* _QPB_KL_DEFS_H */
