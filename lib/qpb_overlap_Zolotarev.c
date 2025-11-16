@@ -46,6 +46,7 @@ static qpb_double *numerators;
 static qpb_double *shifts;
 static qpb_double constant_term;
 
+
 /* -------------- SCALAR FUNCTIONS -------------- */
 
 /* Calculate c coefficients using Jacobi elliptic functions */
@@ -67,23 +68,8 @@ calculate_c_coefficients(qpb_double *c, int n, qpb_double k_prime, qpb_double K_
     }
 }
 
-qpb_double
-Zolotarev_scalar_inverse_square_root(qpb_double x, qpb_double *c)
-{
 
-  qpb_double numerator = 1.0;
-  qpb_double denominator = 1.0;
-
-  for (int i = 1; i <= Zolotarev_order; i++)
-  {
-      numerator *= (x * x + c[2*i - 1]);
-      denominator *= (x * x + c[2*i - 2]);
-  }
-
-  return numerator / denominator;
-}
-
-/* Calculate b coefficients from c's */
+/* Calculate b coefficients using c's */
 void
 calculate_b_coefficients(qpb_double *b, qpb_double *c, int n)
 {
@@ -104,19 +90,37 @@ calculate_b_coefficients(qpb_double *b, qpb_double *c, int n)
     }
 }
 
-/* Evaluate Q(x^2) without normalization */
+
+qpb_double
+sign_function_product_form(qpb_double x, int n, qpb_double *c)
+{
+  qpb_double x2 = x * x;
+  qpb_double numerator = 1.0;
+  qpb_double denominator = 1.0;
+
+  for (int i = 0; i < n; i++)
+  {
+      numerator *= (x2 + c[2*i + 1]);
+      denominator *= (x2 + c[2*i]);
+  }
+
+  return x * numerator / denominator;
+}
+
+
+// Calculate normalization constant
 qpb_double
 calculate_normalization_constant(qpb_double *c, int n, \
-                  qpb_double minimum_eigenvalue, qpb_double maximum_eigenvalue)
+        qpb_double minimum_eigenvalue, qpb_double maximum_eigenvalue)
 {
-  qpb_double sign_approx_at_1 = Zolotarev_scalar_inverse_square_root(1, c);
-  qpb_double condition_number = maximum_eigenvalue/minimum_eigenvalue;
-  qpb_double sign_approx_at_max_range = condition_number;
-  sign_approx_at_max_range *= Zolotarev_scalar_inverse_square_root(
-                                                      condition_number, c);
+  qpb_double sign_function_at_1 = sign_function_product_form(1.0, n, c);
+  qpb_double condition_number = maximum_eigenvalue / minimum_eigenvalue;
+  qpb_double sign_function_at_max_range = sign_function_product_form(
+                                                    condition_number, n, c);
 
-  return 0.5*(sign_approx_at_1 + sign_approx_at_max_range);
+  return 2.0 / (sign_function_at_1 + sign_function_at_max_range);
 }
+
 
 /* --------------------- EXTREME EIGENVALUES FUNCTIONS --------------------- */
 
@@ -279,8 +283,8 @@ qpb_overlap_Zolotarev_init(void * gauge, qpb_clover_term clover, \
     qpb_double min_eigv_squared;
     qpb_double max_eigv_squared;
 
-    /* First the the extrema of the eigenvalues spectrum of H^2,
-    H = g5*(D - rho), are calculated and are stored inside the
+    /* First the the extrema of the eigenvalues spectrum of X^2,
+    X = g5*(D - rho), are calculated and are stored inside the
     'min_eigv_squared' and 'max_eigv_squared'variables correspondingly. */
     int Lanczos_iters = qpb_extreme_eigenvalues_of_X_squared(&min_eigv_squared,\
                       &max_eigv_squared, Lanczos_epsilon, Lanczos_max_iters);
@@ -327,15 +331,16 @@ qpb_overlap_Zolotarev_init(void * gauge, qpb_clover_term clover, \
     calculate_b_coefficients(b, c, Zolotarev_order);
     
     /* Compute normalization constant */
-    qpb_double D = calculate_normalization_constant(c, Zolotarev_order, \
+    qpb_double normalization_constant = calculate_normalization_constant(
+                                  c, Zolotarev_order, \
                                   ov_params.min_eigv, ov_params.max_eigv);
 
-    constant_term = D/ov_params.min_eigv/ov_params.min_eigv;
+    constant_term = normalization_constant / ov_params.min_eigv;
 
     for(int i=0; i<Zolotarev_order; i++)
     {
-      shifts[i] = c[2*i]*ov_params.min_eigv*ov_params.min_eigv;
-      numerators[i] = D*b[i];
+      shifts[i] = c[2*i] * ov_params.min_eigv * ov_params.min_eigv;
+      numerators[i] = normalization_constant * b[i] * ov_params.min_eigv;
       // print("numerator[%d] = %.25f, shift[%d] = %.25f\n", i, numerators[i], \
                                                               i, shifts[i]);
     }
