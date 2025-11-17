@@ -271,8 +271,8 @@ qpb_overlap_Zolotarev_init(void * gauge, qpb_clover_term clover, \
       }
       else
       {
-        ov_params.g5_dslash_op = &qpb_gamma5_dslash;	
-        ov_params.dslash_op = &qpb_dslash;	
+        ov_params.g5_dslash_op = &qpb_gamma5_dslash;
+        ov_params.dslash_op = &qpb_dslash;
       }
       break;
     }
