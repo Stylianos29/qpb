@@ -11,6 +11,6 @@ void qpb_gamma5_sign_function_of_X_pfrac(qpb_spinor_field, qpb_spinor_field);
 void qpb_overlap_kl_pfrac(qpb_spinor_field, qpb_spinor_field);
 void qpb_gamma5_overlap_kl_pfrac(qpb_spinor_field, qpb_spinor_field);
 int qpb_congrad_overlap_kl_pfrac(qpb_spinor_field, qpb_spinor_field, qpb_double, int);
-int qpb_congrad_overlap_kl_sfrac_multiply_down(qpb_spinor_field, qpb_spinor_field, qpb_double, int);
+int qpb_congrad_overlap_kl_pfrac_multiply_down(qpb_spinor_field, qpb_spinor_field, qpb_double, int);
 
 #endif /* _QPB_OVERLAP_KL_PFRAC_H */
