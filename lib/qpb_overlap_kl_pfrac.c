@@ -546,6 +546,7 @@ conjugate_aPnnInv_gamma5_plus_b_X_QnnInv_op(qpb_spinor_field y, qpb_spinor_field
   // Pnn inverse part
   // Pnn_inverse_op(y, x);
   combined_inverse_op(z, y, x);
+  print("Finished combined inverse op.\n");
   qpb_spinor_gamma5(w, y);
 
   // Qnn inverse part
@@ -581,6 +582,8 @@ qpb_congrad_aPnnInv_gamma5_plus_b_X_QnnInv_op(qpb_spinor_field x, \
   // bprime = Dov^+ b
   // qpb_spinor_gamma5(w, b);
   conjugate_aPnnInv_gamma5_plus_b_X_QnnInv_op(bprime, b);
+
+  print("Finished bprime computation.\n");
 
   qpb_spinor_xdotx(&b_norm, bprime);
   
@@ -685,6 +688,8 @@ qpb_congrad_overlap_kl_pfrac_multiply_down(qpb_spinor_field x, \
 
   qpb_spinor_gamma5(b, b);
   Pnn_inverse_op(b_prime, b);
+
+  print("Starting CG solver for multiply-down trick...\n");
 
   qpb_congrad_aPnnInv_gamma5_plus_b_X_QnnInv_op(x, b_prime, CG_epsilon, CG_max_iter);
 }
