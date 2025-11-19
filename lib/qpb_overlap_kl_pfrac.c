@@ -879,7 +879,6 @@ qpb_congrad_overlap_kl_pfrac_multiply_down(qpb_spinor_field x, \
 
   qpb_spinor_gamma5(b, b);
   A_op_temp(b_prime, b);
-  B_op_temp(x, b_prime);
   
-  // qpb_congrad_aAop_gamma5_plus_b_X_Bop(x, b_prime, CG_epsilon, CG_max_iter);
+  qpb_congrad_aAop_gamma5_plus_b_X_Bop(x, b_prime, CG_epsilon, CG_max_iter);
 }
