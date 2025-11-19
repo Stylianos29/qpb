@@ -153,7 +153,7 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover, \
     MD_numerators = qpb_alloc(sizeof(qpb_double)*2*KL_diagonal_order);
     for(int i=0; i<2*KL_diagonal_order; i++)
     {
-      qpb_double trig_arg = 0.5*M_PI*i*constant_term;
+      qpb_double trig_arg = 0.5*M_PI*(i+1)*constant_term;
 
       MD_shifts[i] = pow(tan(trig_arg), 2);
 
@@ -161,11 +161,11 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover, \
       qpb_double denominator = 1.0;
       for(int k=0; k<2*KL_diagonal_order; k++)
         if (k != i)
-          denominator *= (MD_shifts[i] - MD_shifts[k]);
-      MD_numerators[i] = -1.0/denominator;
+          denominator *= (MD_shifts[k] - MD_shifts[i]);
+      MD_numerators[i] = 1.0/denominator;
     }
 
-    qpb_mscongrad_init(KL_diagonal_order);
+    qpb_mscongrad_init(2*KL_diagonal_order);
 
   }
 	
@@ -188,7 +188,7 @@ qpb_overlap_kl_pfrac_finalize()
   
   ov_params.initialized = 0;
   
-  qpb_mscongrad_finalize(KL_diagonal_order);
+  qpb_mscongrad_finalize(2*KL_diagonal_order);
 
   free(numerators);
   free(shifts);
@@ -217,6 +217,24 @@ D_op(qpb_spinor_field y, qpb_spinor_field x)
   
   ov_params.dslash_op(y, x, dslash_args);
   
+  return;
+}
+
+
+INLINE void
+X_op(qpb_spinor_field y, qpb_spinor_field x)
+{
+  /* X(x) ≡ γ5( (a*D - ρ)(x) ) */
+
+  void *dslash_args[4];
+
+  dslash_args[0] = ov_params.gauge_ptr;
+  dslash_args[1] = &ov_params.m_bare;
+  dslash_args[2] = &ov_params.clover;
+  dslash_args[3] = &ov_params.c_sw;
+
+  ov_params.g5_dslash_op(y, x, dslash_args);
+
   return;
 }
 
@@ -402,37 +420,49 @@ qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b, \
 /* --------------------- IMPLEMENTING MULTIPLY-DOWN TRICK --------------------- */
 
 void
-inverse_op(qpb_spinor_field y, qpb_spinor_field x, Range r)
+A_op(qpb_spinor_field y, qpb_spinor_field x, int upper_threshold)
 {
 
-  /*Note: Keep the KL order below n=10. */
-  qpb_spinor_field yMS[KL_diagonal_order];
-  for (int i = 0; i < KL_diagonal_order; i++)
+  int start = (int) floor(upper_threshold/2.0) + 1;
+  int count = KL_diagonal_order - start + 1;
+
+  qpb_spinor_field yMS[count];
+  for (int i = 0; i < count; i++)
   {
     yMS[i] = mscg_temp_vecs[i];
-    // It needs to re-initialized to 0 with every call of the function
     qpb_spinor_field_set_zero(yMS[i]);
   }
 
-  int count = (r.end - r.start + r.step - 1) / r.step;
+  // Isolate the required shifts and numerators
   isolated_shifts = qpb_alloc(sizeof(qpb_double)*count);
   isolated_numerators = qpb_alloc(sizeof(qpb_double)*count);
 
-  for (int i = 0; i < KL_diagonal_order; i++)
+  for (int i = start; i <= KL_diagonal_order; i++)
   {
-    isolated_shifts[i] = MD_shifts[r.start + i * r.step];
-    isolated_numerators[i] = MD_numerators[r.start + i * r.step];
+      // Product[(-MD_shifts[[2*i]] + MD_shifts[[k]]), {k, 1, upper_threshold, 2}]
+      qpb_double prod1 = 1.0;
+      for (int k = 1; k <= upper_threshold; k+=2)
+          prod1 *= (-MD_shifts[2*i - 1] + MD_shifts[k - 1]);
+      
+      // Product[If[k == i, 1, (-MD_shifts[[2*i]] + MD_shifts[[2*k]])], {k, start, n}]
+      qpb_double prod2 = 1.0;
+      for (int k = start; k <= KL_diagonal_order; k++)
+          if (k != i)
+              prod2 *= (-MD_shifts[2*i - 1] + MD_shifts[2*k - 1]);
+      
+      isolated_numerators[i - start] = prod1 / prod2;
+      isolated_shifts[i - start] = MD_shifts[2*i - 1];  // MD_shifts[[2*i]]
   }
+  
   qpb_double kernel_mass = ov_params.m_bare; // Kernel operator bare mass
   qpb_double kernel_kappa = 1./(2*kernel_mass+8.);
 
   qpb_mscongrad(yMS, x, ov_params.gauge_ptr, ov_params.clover, kernel_kappa, \
-    KL_diagonal_order, isolated_shifts, ov_params.c_sw, MS_solver_precision, \
+    count, isolated_shifts, ov_params.c_sw, MS_solver_precision, \
     MS_maximum_solver_iterations);
 
-  // Initialize sum variable y to zero
   qpb_spinor_field_set_zero(y);
-  for(int i=0; i<KL_diagonal_order; i++)
+  for(int i=0; i<count; i++)
     qpb_spinor_axpy(y, (qpb_complex) {isolated_numerators[i], 0.}, yMS[i], y);
 
   return;
@@ -440,69 +470,134 @@ inverse_op(qpb_spinor_field y, qpb_spinor_field x, Range r)
 
 
 void
-Pnn_inverse_op(qpb_spinor_field y, qpb_spinor_field x)
-{
-  Range r;
-  r.start = 1;
-  r.end = 2*KL_diagonal_order;
-  r.step = 2;
-
-  inverse_op(y, x, r);
-
-  return;
-}
-
-
-void
-Qnn_inverse_op(qpb_spinor_field y, qpb_spinor_field x)
-{
-  Range r;
-  r.start = 0;
-  r.end = 2*KL_diagonal_order;
-  r.step = 2;
-
-  inverse_op(y, x, r);
-
-  return;
-}
-
-
-void
-combined_inverse_op(qpb_spinor_field y, qpb_spinor_field z, qpb_spinor_field x)
+B_op(qpb_spinor_field y, qpb_spinor_field x, int upper_threshold)
 {
 
-  /*Note: Keep the KL order below n=10. */
-  qpb_spinor_field yMS[2*KL_diagonal_order];
-  for (int i = 0; i < 2*KL_diagonal_order; i++)
+  int start = (int) ceil(upper_threshold/2.0) + 1;
+  int count = KL_diagonal_order - start + 1;
+
+  qpb_spinor_field yMS[count];
+  for (int i = 0; i < count; i++)
   {
     yMS[i] = mscg_temp_vecs[i];
-    // It needs to re-initialized to 0 with every call of the function
     qpb_spinor_field_set_zero(yMS[i]);
+  }
+
+  // Isolate the required shifts and numerators
+  isolated_shifts = qpb_alloc(sizeof(qpb_double)*count);
+  isolated_numerators = qpb_alloc(sizeof(qpb_double)*count);
+
+  for (int i = start; i <= KL_diagonal_order; i++)
+  {
+      // Product[(-MD_shifts[[2*i]] + MD_shifts[[k]]), {k, 1, upper_threshold, 2}]
+      qpb_double prod1 = 1.0;
+      for (int k = 2; k <= upper_threshold; k+=2)
+          prod1 *= (-MD_shifts[2*i - 2] + MD_shifts[k - 1]);
+      
+      // Product[If[k == i, 1, (-MD_shifts[[2*i]] + MD_shifts[[2*k]])], {k, start, n}]
+      qpb_double prod2 = 1.0;
+      for (int k = start; k <= KL_diagonal_order; k++)
+          if (k != i)
+              prod2 *= (-MD_shifts[2*i - 2] + MD_shifts[2*k - 2]);
+      
+      isolated_numerators[i - start] = prod1 / prod2;
+      isolated_shifts[i - start] = MD_shifts[2*i - 2];  // MD_shifts[[2*i]]
+  }
+  
+  qpb_double kernel_mass = ov_params.m_bare; // Kernel operator bare mass
+  qpb_double kernel_kappa = 1./(2*kernel_mass+8.);
+
+  qpb_mscongrad(yMS, x, ov_params.gauge_ptr, ov_params.clover, kernel_kappa, \
+    count, isolated_shifts, ov_params.c_sw, MS_solver_precision, \
+    MS_maximum_solver_iterations);
+
+  qpb_spinor_field_set_zero(y);
+  for(int i=0; i<count; i++)
+    qpb_spinor_axpy(y, (qpb_complex) {isolated_numerators[i], 0.}, yMS[i], y);
+
+  return;
+}
+
+
+void
+C_op(qpb_spinor_field y, qpb_spinor_field z, qpb_spinor_field x, int upper_threshold)
+{
+
+  int Qstart = (int) ceil(upper_threshold/2.0) + 1;
+  int Pstart = (int) floor(upper_threshold/2.0) + 1;
+
+  int count = 2*KL_diagonal_order - Pstart + 1;
+
+  qpb_spinor_field yMS[count];
+  for (int i = 0; i < count; i++)
+  {
+    yMS[i] = mscg_temp_vecs[i];
+    qpb_spinor_field_set_zero(yMS[i]);
+  }
+
+  // Isolate the required shifts and numerators
+  isolated_shifts = qpb_alloc(sizeof(qpb_double)*count);
+  for (int i = Qstart; i <= 2*KL_diagonal_order; i++)
+      isolated_shifts[i - Qstart] = MD_shifts[i];
+
+  isolated_numerators = qpb_alloc(sizeof(qpb_double)*count);
+  for (int i = Qstart; i <= 2*KL_diagonal_order; i++)
+  {
+    qpb_double prod1, prod2;
+    if (i/2)
+    {
+      // Product[(-MD_shifts[[2*i]] + MD_shifts[[k]]), {k, 1, upper_threshold, 2}]
+      prod1 = 1.0;
+      for (int k = 2; k <= upper_threshold; k+=2)
+          prod1 *= (-MD_shifts[2*i - 2] + MD_shifts[k - 1]);
+      
+      // Product[If[k == i, 1, (-MD_shifts[[2*i]] + MD_shifts[[2*k]])], {k, start, n}]
+      prod2 = 1.0;
+      for (int k = Qstart; k <= KL_diagonal_order; k++)
+          if (k != i)
+              prod2 *= (-MD_shifts[2*i - 2] + MD_shifts[2*k - 2]);
+      
+      isolated_numerators[2*(i-Qstart)] = prod1 / prod2;
+    }
+    else
+    {
+      // Product[(-MD_shifts[[2*i]] + MD_shifts[[k]]), {k, 1, upper_threshold, 2}]
+      prod1 = 1.0;
+      for (int k = 1; k <= upper_threshold; k+=2)
+          prod1 *= (-MD_shifts[2*i - 1] + MD_shifts[k - 1]);
+      
+      // Product[If[k == i, 1, (-MD_shifts[[2*i]] + MD_shifts[[2*k]])], {k, start, n}]
+      prod2 = 1.0;
+      for (int k = Pstart; k <= KL_diagonal_order; k++)
+          if (k != i)
+              prod2 *= (-MD_shifts[2*i - 1] + MD_shifts[2*k - 1]);
+      
+      isolated_numerators[2*(i-Qstart) + 1] = prod1 / prod2;
+    }
   }
 
   qpb_double kernel_mass = ov_params.m_bare; // Kernel operator bare mass
   qpb_double kernel_kappa = 1./(2*kernel_mass+8.);
 
   qpb_mscongrad(yMS, x, ov_params.gauge_ptr, ov_params.clover, kernel_kappa, \
-    2*KL_diagonal_order, MD_shifts, ov_params.c_sw, MS_solver_precision, \
+    count, isolated_shifts, ov_params.c_sw, MS_solver_precision, \
     MS_maximum_solver_iterations);
 
-  // Initialize sum variable y to zero
   qpb_spinor_field_set_zero(y);
-  for(int i=0; i<2*KL_diagonal_order; i=i+2)
-    qpb_spinor_axpy(y, (qpb_complex) {MD_numerators[i], 0.}, yMS[i], y);
+  for(int i=Qstart; i<count; i+=2)
+    qpb_spinor_axpy(y, (qpb_complex) {isolated_numerators[i], 0.}, yMS[i], y);
 
-  // Initialize sum variable z to zero
   qpb_spinor_field_set_zero(z);
-  for(int i=1; i<2*KL_diagonal_order; i=i+2)
-    qpb_spinor_axpy(z, (qpb_complex) {MD_numerators[i], 0.}, yMS[i], z);
+  for(int i=Pstart; i<count; i+=2)
+    qpb_spinor_axpy(z, (qpb_complex) {isolated_numerators[i], 0.}, yMS[i], z);
 
   return;
 }
 
 
+
 void
-aPnnInv_gamma5_plus_b_X_QnnInv_op(qpb_spinor_field y, qpb_spinor_field x)
+aAop_gamma5_plus_b_X_Bop(qpb_spinor_field y, qpb_spinor_field x)
 {
 
   qpb_spinor_field z = ov_temp_vecs[7];
@@ -512,16 +607,18 @@ aPnnInv_gamma5_plus_b_X_QnnInv_op(qpb_spinor_field y, qpb_spinor_field x)
   qpb_double rho = ov_params.rho;
 
   qpb_complex a = {rho + 0.5*overlap_mass, 0.};
-  qpb_complex b = {rho - 0.5*overlap_mass, 0.};
+  qpb_complex b = {constant_term*(rho - 0.5*overlap_mass), 0.};
+
+  int upper_threshold = 0;
 
   // Pnn inverse part
   qpb_spinor_gamma5(y, x);
-  Pnn_inverse_op(w, y);
-
+  A_op(w, y, upper_threshold);
+  
   // Qnn inverse part
-  Qnn_inverse_op(y, x);
-  D_op(z, y);
-  qpb_spinor_gamma5(z, z);
+  B_op(z, x, upper_threshold);
+  D_op(y, z);
+  qpb_spinor_gamma5(z, y);
 
   // Final combination
   qpb_spinor_axpby(y, a, w, b, z);
@@ -531,7 +628,7 @@ aPnnInv_gamma5_plus_b_X_QnnInv_op(qpb_spinor_field y, qpb_spinor_field x)
 
 
 void
-conjugate_aPnnInv_gamma5_plus_b_X_QnnInv_op(qpb_spinor_field y, qpb_spinor_field x)
+conjugate_aAop_gamma5_plus_b_X_Bop(qpb_spinor_field y, qpb_spinor_field x)
 {
 
   qpb_spinor_field z = ov_temp_vecs[9];
@@ -541,16 +638,17 @@ conjugate_aPnnInv_gamma5_plus_b_X_QnnInv_op(qpb_spinor_field y, qpb_spinor_field
   qpb_double rho = ov_params.rho;
 
   qpb_complex a = {rho + 0.5*overlap_mass, 0.};
-  qpb_complex b = {rho - 0.5*overlap_mass, 0.};
+  qpb_complex b = {constant_term*(rho - 0.5*overlap_mass), 0.};
+
+  int upper_threshold = 0;
 
   // Pnn inverse part
-  // Pnn_inverse_op(y, x);
-  combined_inverse_op(z, y, x);
-  print("Finished combined inverse op.\n");
+  A_op(y, x, upper_threshold);
+  // C_op(z, y, x, upper_threshold);
   qpb_spinor_gamma5(w, y);
-
+  
   // Qnn inverse part
-  // Qnn_inverse_op(y, x);
+  B_op(z, x, upper_threshold);
   D_op(y, z);
   qpb_spinor_gamma5(z, y);
 
@@ -562,14 +660,14 @@ conjugate_aPnnInv_gamma5_plus_b_X_QnnInv_op(qpb_spinor_field y, qpb_spinor_field
 
 
 int
-qpb_congrad_aPnnInv_gamma5_plus_b_X_QnnInv_op(qpb_spinor_field x, \
+qpb_congrad_aAop_gamma5_plus_b_X_Bop(qpb_spinor_field x, \
                     qpb_spinor_field b, qpb_double CG_epsilon, int CG_max_iter)
 {
-  qpb_spinor_field p = mscg_temp_vecs[11];
-  qpb_spinor_field r = mscg_temp_vecs[12];
-  qpb_spinor_field y = mscg_temp_vecs[13];
-  qpb_spinor_field w = mscg_temp_vecs[14];
-  qpb_spinor_field bprime = mscg_temp_vecs[15];
+  qpb_spinor_field p = ov_temp_vecs[11];
+  qpb_spinor_field r = ov_temp_vecs[12];
+  qpb_spinor_field y = ov_temp_vecs[13];
+  qpb_spinor_field w = ov_temp_vecs[14];
+  qpb_spinor_field bprime = ov_temp_vecs[15];
 
   int n_reeval = 100;
   int n_echo = 100;
@@ -580,18 +678,15 @@ qpb_congrad_aPnnInv_gamma5_plus_b_X_QnnInv_op(qpb_spinor_field x, \
   qpb_complex_double beta, gamma;
 
   // bprime = Dov^+ b
-  // qpb_spinor_gamma5(w, b);
-  conjugate_aPnnInv_gamma5_plus_b_X_QnnInv_op(bprime, b);
-
-  print("Finished bprime computation.\n");
+  conjugate_aAop_gamma5_plus_b_X_Bop(bprime, b);
 
   qpb_spinor_xdotx(&b_norm, bprime);
   
   qpb_spinor_field_set_zero(x);
 
   /* r0 = bprime - A.x */
-  // aPnnInv_gamma5_plus_b_X_QnnInv_op(w, x);
-  // conjugate_aPnnInv_gamma5_plus_b_X_QnnInv_op(p, w);
+  // aAop_gamma5_plus_b_X_Bop(w, x);
+  // conjugate_aAop_gamma5_plus_b_X_Bop(p, w);
   // qpb_spinor_xmy(r, bprime, p);
 
   /* Or r0 = bprime for short since x0=0 */
@@ -613,8 +708,8 @@ qpb_congrad_aPnnInv_gamma5_plus_b_X_QnnInv_op(qpb_spinor_field x, \
     }
 
     /* y = Q(p) */
-    aPnnInv_gamma5_plus_b_X_QnnInv_op(w, p);
-    conjugate_aPnnInv_gamma5_plus_b_X_QnnInv_op(y, w);
+    aAop_gamma5_plus_b_X_Bop(w, p);
+    conjugate_aAop_gamma5_plus_b_X_Bop(y, w);
 
     /* omega = dot(p, A(p)) */
     qpb_spinor_xdoty(&omega, p, y);
@@ -627,8 +722,8 @@ qpb_congrad_aPnnInv_gamma5_plus_b_X_QnnInv_op(qpb_spinor_field x, \
 
     if(iters % n_reeval == 0) 
    {
-      aPnnInv_gamma5_plus_b_X_QnnInv_op(w, x);
-      conjugate_aPnnInv_gamma5_plus_b_X_QnnInv_op(y, w);
+      aAop_gamma5_plus_b_X_Bop(w, x);
+      conjugate_aAop_gamma5_plus_b_X_Bop(y, w);
       qpb_spinor_xmy(r, bprime, y);
 	  }
     else
@@ -650,8 +745,8 @@ qpb_congrad_aPnnInv_gamma5_plus_b_X_QnnInv_op(qpb_spinor_field x, \
 
   t = qpb_stop_watch(t);
 
-  aPnnInv_gamma5_plus_b_X_QnnInv_op(w, x);
-  conjugate_aPnnInv_gamma5_plus_b_X_QnnInv_op(y, w);
+  aAop_gamma5_plus_b_X_Bop(w, x);
+  conjugate_aAop_gamma5_plus_b_X_Bop(y, w);
   qpb_spinor_xmy(r, bprime, y);
   qpb_spinor_xdotx(&res_norm, r);
 
@@ -686,10 +781,10 @@ qpb_congrad_overlap_kl_pfrac_multiply_down(qpb_spinor_field x, \
     return -1;
   }
 
+  int upper_threshold = 0;
+
   qpb_spinor_gamma5(b, b);
-  Pnn_inverse_op(b_prime, b);
-
-  print("Starting CG solver for multiply-down trick...\n");
-
-  qpb_congrad_aPnnInv_gamma5_plus_b_X_QnnInv_op(x, b_prime, CG_epsilon, CG_max_iter);
+  A_op(b_prime, b, upper_threshold);
+  
+  qpb_congrad_aAop_gamma5_plus_b_X_Bop(x, b_prime, CG_epsilon, CG_max_iter);
 }
