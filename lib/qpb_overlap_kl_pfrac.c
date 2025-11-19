@@ -441,9 +441,9 @@ A_op_temp(qpb_spinor_field y, qpb_spinor_field x)
       
       // Product[If[k == i, 1, (-MD_shifts[[2*i]] + MD_shifts[[2*k]])], {k, start, n}]
       qpb_double prod2 = 1.0;
-      // for (int k = 0; k < KL_diagonal_order; k++)
-      //     if (k != i)
-      //         prod2 *= (-MD_shifts[2*i - 1] + MD_shifts[2*k - 1]);
+      for (int k = 0; k < KL_diagonal_order; k++)
+          if (k != i)
+              prod2 *= (-MD_shifts[2*i + 1] + MD_shifts[2*k + 1]);
       
       isolated_numerators[i] = prod1 / prod2;
       isolated_shifts[i] = MD_shifts[2*i + 1];  // MD_shifts[[2*i]]
@@ -538,9 +538,9 @@ B_op_temp(qpb_spinor_field y, qpb_spinor_field x)
       
       // Product[If[k == i, 1, (-MD_shifts[[2*i]] + MD_shifts[[2*k]])], {k, start, n}]
       qpb_double prod2 = 1.0;
-      // for (int k = 0; k <= KL_diagonal_order; k++)
-      //     if (k != i)
-      //         prod2 *= (-MD_shifts[2*i - 2] + MD_shifts[2*k - 2]);
+      for (int k = 0; k < KL_diagonal_order; k++)
+          if (k != i)
+              prod2 *= (-MD_shifts[2*i] + MD_shifts[2*k]);
       
       isolated_numerators[i] = prod1 / prod2;
       isolated_shifts[i] = MD_shifts[2*i];  // MD_shifts[[2*i]]
