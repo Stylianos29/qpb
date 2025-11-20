@@ -419,6 +419,55 @@ qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b, \
 
 /* --------------------- IMPLEMENTING MULTIPLY-DOWN TRICK --------------------- */
 
+
+INLINE void
+Pnn_X2_op(qpb_spinor_field y, qpb_spinor_field x)
+{
+  /* Implements P_nn(X^2(x)) */
+
+  qpb_spinor_field z = ov_temp_vecs[7];
+  qpb_spinor_field w = ov_temp_vecs[8];
+
+  qpb_spinor_xeqy(z, x);
+  for (int i = 0; i < KL_diagonal_order; i++)
+  {
+    X_op(y, z);
+    X_op(w, y);
+
+    qpb_spinor_ax(y, (qpb_complex) {MD_shifts[2*i + 1], 0.}, z);
+
+    qpb_spinor_xpy(z, w, y);
+  }
+  qpb_spinor_xeqy(y, z);
+
+  return;
+}
+
+
+INLINE void
+Qnn_X2_op(qpb_spinor_field y, qpb_spinor_field x)
+{
+  /* Implements Q_nn(X^2(x)) */
+
+  qpb_spinor_field z = ov_temp_vecs[8];
+  qpb_spinor_field w = ov_temp_vecs[9];
+
+  qpb_spinor_xeqy(z, x);
+  for (int i = 0; i < KL_diagonal_order; i++)
+  {
+    X_op(y, z);
+    X_op(w, y);
+
+    qpb_spinor_ax(y, (qpb_complex) {MD_shifts[2*i], 0.}, z);
+
+    qpb_spinor_xpy(z, w, y);
+  }
+  qpb_spinor_ax(y, (qpb_complex) {constant_term, 0.}, z);
+
+  return;
+}
+
+
 void
 A_op_temp(qpb_spinor_field y, qpb_spinor_field x)
 {
@@ -664,7 +713,6 @@ C_op_temp(qpb_spinor_field z, qpb_spinor_field y, qpb_spinor_field x)
 
   return;
 }
-
 
 
 void
@@ -932,6 +980,16 @@ qpb_congrad_overlap_kl_pfrac_multiply_down(qpb_spinor_field x, \
 
   qpb_spinor_gamma5(b, b);
   A_op_temp(b_prime, b);
+
+  Pnn_X2_op(x, b_prime);
+
+  qpb_double b_norm, x_norm;
+  qpb_spinor_xdotx(&b_norm, b_prime);
+  qpb_spinor_xdotx(&x_norm, x);
+
+  print(" \t **TEST** = %e\n", x_norm / b_norm);
   
-  qpb_congrad_aAop_gamma5_plus_b_X_Bop(x, b_prime, CG_epsilon, CG_max_iter);
+  // qpb_congrad_aAop_gamma5_plus_b_X_Bop(x, b_prime, CG_epsilon, CG_max_iter);
+
+  // return;
 }
