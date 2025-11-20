@@ -614,7 +614,7 @@ B_op(qpb_spinor_field y, qpb_spinor_field x, int upper_threshold)
 
 
 void
-C_op_temp(qpb_spinor_field y, qpb_spinor_field z, qpb_spinor_field x)
+C_op_temp(qpb_spinor_field z, qpb_spinor_field y, qpb_spinor_field x)
 {
 
   qpb_spinor_field yMS[2*KL_diagonal_order];
@@ -818,7 +818,7 @@ qpb_congrad_aAop_gamma5_plus_b_X_Bop(qpb_spinor_field x, \
   qpb_spinor_field bprime = ov_temp_vecs[15];
 
   int n_reeval = 100;
-  int n_echo = 100;
+  int n_echo = 5;
   int iters = 0;
 
   qpb_double res_norm, b_norm;
