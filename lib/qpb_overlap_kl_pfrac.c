@@ -790,13 +790,12 @@ conjugate_aAop_gamma5_plus_b_X_Bop(qpb_spinor_field y, qpb_spinor_field x)
   int upper_threshold = 0;
 
   // Pnn inverse part
-  // A_op_temp(y, x);
-  C_op_temp(z, y, x);
-  // C_op(z, y, x, upper_threshold);
+  A_op_temp(y, x);
+  // C_op_temp(z, y, x);
   qpb_spinor_gamma5(w, y);
   
   // Qnn inverse part
-  // B_op_temp(z, x);
+  B_op_temp(z, x);
   D_op(y, z);
   qpb_spinor_gamma5(z, y);
 
@@ -882,7 +881,7 @@ qpb_congrad_aAop_gamma5_plus_b_X_Bop(qpb_spinor_field x, \
 	  }
     qpb_spinor_xdotx(&res_norm, r);
     if((iters % n_echo == 0))
-	    print(" \t iters = %8d, res = %e\n", iters, res_norm / b_norm);
+	    print(" \t HERE!! iters = %8d, res = %e\n", iters, res_norm / b_norm);
 
     beta.re = res_norm / gamma.re;
     beta.im = 0.;
