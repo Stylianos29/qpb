@@ -242,7 +242,7 @@ qpb_overlap_Neuberger_init(void * gauge, qpb_clover_term clover, \
 
     for(int i=0; i<KL_diagonal_order; i++)
     {
-      qpb_double trig_arg = M_PI*(0.5*i+0.25)*constant_term;
+      qpb_double trig_arg = 0.5*M_PI*(i-0.5)*constant_term;
       shifts[i] = pow(tan(trig_arg), 2);
       numerators[i] = constant_term/powl(cos(trig_arg), 2);
       // print("numerator[%d] = %.25f, shift[%d] = %.25f\n", i, numerators[i], \
@@ -320,11 +320,10 @@ qpb_gamma5_sign_function_of_X_Neuberger(qpb_spinor_field y, qpb_spinor_field x)
   qpb_spinor_field sum = ov_temp_vecs[0];
 
   qpb_spinor_field yMS[KL_diagonal_order];
-  for(int sigma=0; sigma<KL_diagonal_order; sigma++)
+  for(int i=0; i<KL_diagonal_order; i++)
   {
-    yMS[sigma] = mscg_temp_vecs[sigma];
-    // It needs to re-initialized to 0 with every call of the function
-    qpb_spinor_field_set_zero(yMS[sigma]);
+    yMS[i] = mscg_temp_vecs[i];
+    qpb_spinor_field_set_zero(yMS[i]);
   }
 
   qpb_double kernel_mass = ov_params.m_bare; // Kernel operator bare mass
@@ -335,8 +334,9 @@ qpb_gamma5_sign_function_of_X_Neuberger(qpb_spinor_field y, qpb_spinor_field x)
     MS_maximum_solver_iterations);
 
   // Add the partial fraction terms
-  for(int sigma=0; sigma<KL_diagonal_order; sigma++)
-    qpb_spinor_axpy(sum, (qpb_complex) {numerators[sigma], 0.}, yMS[sigma], sum);
+  qpb_spinor_field_set_zero(sum);
+  for(int i=0; i<KL_diagonal_order; i++)
+    qpb_spinor_axpy(sum, (qpb_complex) {numerators[i], 0.}, yMS[i], sum);
 
   D_op(y, sum);
 
