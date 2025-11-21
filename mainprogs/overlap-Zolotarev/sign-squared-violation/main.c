@@ -457,12 +457,14 @@ main(int argc, char *argv[])
   
   qpb_double *diffs;
   diffs = qpb_alloc(sizeof(qpb_double)*n_vec);
-
+  
+  qpb_double t = qpb_stop_watch(0);
   qpb_overlap_Zolotarev_init(solver_arg_links, clover_term, Zol_order, \
                           rho, c_sw, mass, scaling_factor, epsilon, max_iters, \
                           Lanczos_epsilon, Lanczos_max_iters, delta_max, delta_min);
+  qpb_double t_overhead = qpb_stop_watch(t);
+  print(" Total overhead time: %f sec\n", t_overhead);
 
-  qpb_double t = qpb_stop_watch(0);
   for(int i=0; i<n_vec; i++)
   {
     print("\n");
