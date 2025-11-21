@@ -242,7 +242,7 @@ qpb_overlap_Neuberger_init(void * gauge, qpb_clover_term clover, \
 
     for(int i=0; i<KL_diagonal_order; i++)
     {
-      qpb_double trig_arg = 0.5*M_PI*(i-0.5)*constant_term;
+      qpb_double trig_arg = 0.5*M_PI*(i+0.5)*constant_term;
       shifts[i] = pow(tan(trig_arg), 2);
       numerators[i] = constant_term/powl(cos(trig_arg), 2);
       // print("numerator[%d] = %.25f, shift[%d] = %.25f\n", i, numerators[i], \
