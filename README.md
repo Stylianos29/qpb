@@ -62,10 +62,11 @@ installed:
    make install
    ```
    ### Troubleshooting:
-   * **If configure fails with "C compiler cannot create executables"**: The `mpicc` 
-     compiler is not available. On HPC clusters, load the appropriate MPI module 
-     (e.g., `module load GCC` and `module load ParaStationMPI`). Use 
-     multi-threaded versions if available, as QPB uses OpenMP alongside MPI.
+   * **If configure fails with "C compiler cannot create executables"**:
+     The `mpicc` compiler is not available. On HPC clusters, load the
+     appropriate MPI module (e.g., `module load GCC` and `module load
+     ParaStationMPI`). Use multi-threaded versions if available, as QPB
+     uses OpenMP alongside MPI.
 
 ### Step 3: Configure QPB
 1. Navigate to the QPB directory:
@@ -88,8 +89,10 @@ installed:
    make
    ```
    #### Troubleshooting:
-   If you see `fatal error: gsl/gsl_rng.h: No such file or directory`, install
-   GSL.
+   * If you see `fatal error: gsl/gsl_rng.h: No such file or directory`,
+     install GSL or load the GSL module (e.g., `module load GSL`).
+   * If you see `ModuleNotFoundError: No module named 'sympy'`, install
+     SymPy or load the SymPy module (e.g., `module load sympy`).
 2. Build *main programs*:
    ```bash
    cd qpb/mainprogs
