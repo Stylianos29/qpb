@@ -61,6 +61,11 @@ installed:
    make
    make install
    ```
+   ### Troubleshooting:
+   * **If configure fails with "C compiler cannot create executables"**: The `mpicc` 
+     compiler is not available. On HPC clusters, load the appropriate MPI module 
+     (e.g., `module load GCC` and `module load ParaStationMPI`). Use 
+     multi-threaded versions if available, as QPB uses OpenMP alongside MPI.
 
 ### Step 3: Configure QPB
 1. Navigate to the QPB directory:
