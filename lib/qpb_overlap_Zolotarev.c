@@ -457,7 +457,7 @@ qpb_overlap_Zolotarev(qpb_spinor_field y, qpb_spinor_field x)
   qpb_complex a = {rho + 0.5*overlap_mass, 0.};
   qpb_complex b = {rho - 0.5*overlap_mass, 0.};
 
-  qpb_gamma5_sign_function_of_X_pfrac(z, x);
+  qpb_gamma5_sign_function_of_X_Zolotarev(z, x);
 
   qpb_spinor_axpby(y, a, x, b, z);
 
@@ -488,7 +488,7 @@ qpb_congrad_overlap_Zolotarev(qpb_spinor_field x, qpb_spinor_field b, \
   int n_reeval = 100;
   int n_echo = 100;
   int iters = 0;
-  
+
   qpb_double res_norm, b_norm;
   qpb_complex_double alpha = {1, 0}, omega = {1, 0};
   qpb_complex_double beta, gamma;
