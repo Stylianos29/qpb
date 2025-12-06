@@ -41,9 +41,11 @@ mainprogs/overlap-kl-pfrac/sign-squared-values/sign-squared-values
 mainprogs/overlap-kl-pfrac/sign-squared-violation/sign-squared-violation
 
 mainprogs/overlap-Neuberger/invert/invert
+mainprogs/overlap-Zolotarev/mesons/mesons
 mainprogs/overlap-Neuberger/sign-squared-violation/sign-squared-violation
 
 mainprogs/overlap-Zolotarev/invert/invert
+mainprogs/overlap-Neuberger/mesons/mesons
 mainprogs/overlap-Zolotarev/sign-squared-violation/sign-squared-violation
 
 */*/qpb_parameters_scan_files/
