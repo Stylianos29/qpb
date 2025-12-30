@@ -29,7 +29,7 @@
 #include <gsl/gsl_sf_elljac.h>
 
 
-#define OVERLAP_NUMB_TEMP_VECS 7
+#define OVERLAP_NUMB_TEMP_VECS 8
 #define MSCG_NUMB_TEMP_VECS 20
 
 
@@ -335,12 +335,12 @@ qpb_overlap_Zolotarev_init(void * gauge, qpb_clover_term clover, \
                                   c, Zolotarev_order, \
                                   ov_params.min_eigv, ov_params.max_eigv);
 
-    constant_term = normalization_constant / ov_params.min_eigv;
+    constant_term = normalization_constant;
 
     for(int i=0; i<Zolotarev_order; i++)
     {
-      shifts[i] = c[2*i] * ov_params.min_eigv * ov_params.min_eigv;
-      numerators[i] = normalization_constant * b[i] * ov_params.min_eigv;
+      shifts[i] = c[2*i];
+      numerators[i] = normalization_constant * b[i];
       // print("numerator[%d] = %.25f, shift[%d] = %.25f\n", i, numerators[i], \
                                                               i, shifts[i]);
     }
@@ -392,7 +392,9 @@ qpb_overlap_Zolotarev_finalize()
 INLINE void
 D_op(qpb_spinor_field y, qpb_spinor_field x)
 {
-  /* Implements D - rho*I */
+  /* Implements (D - rho*I)/alpha */
+
+  qpb_spinor_field z = ov_temp_vecs[0];
 
   void *dslash_args[4];
 
@@ -401,7 +403,9 @@ D_op(qpb_spinor_field y, qpb_spinor_field x)
   dslash_args[2] = &ov_params.clover;
   dslash_args[3] = &ov_params.c_sw;
   
-  ov_params.dslash_op(y, x, dslash_args);
+  ov_params.dslash_op(z, x, dslash_args);
+
+  qpb_spinor_ax(y, (qpb_complex) {1.0/ov_params.min_eigv, 0.}, z);
   
   return;
 }
@@ -413,7 +417,7 @@ qpb_gamma5_sign_function_of_X_Zolotarev(qpb_spinor_field y, qpb_spinor_field x)
   /* Implements: γ5(sign(X(x))) = γ5(X(c_0 + Sum_{i=1}^{n} c_i/(X^2+σ_i) )),
       with X(x) = γ5(D(x) - ρ*x) . */
 
-  qpb_spinor_field sum = ov_temp_vecs[0];
+  qpb_spinor_field sum = ov_temp_vecs[1];
 
   qpb_spinor_field yMS[Zolotarev_order];
   for(int sigma=0; sigma<Zolotarev_order; sigma++)
@@ -425,10 +429,11 @@ qpb_gamma5_sign_function_of_X_Zolotarev(qpb_spinor_field y, qpb_spinor_field x)
 
   qpb_double kernel_mass = ov_params.m_bare; // Kernel operator bare mass
   qpb_double kernel_kappa = 1./(2*kernel_mass+8.);
+  qpb_double kernel_factor = 1.0/ov_params.min_eigv;
 
   qpb_mscongrad(yMS, x, ov_params.gauge_ptr, ov_params.clover, kernel_kappa, \
     Zolotarev_order, shifts, ov_params.c_sw, MS_solver_precision, \
-    MS_maximum_solver_iterations);
+    MS_maximum_solver_iterations, kernel_factor);
 
   // Initialize sum with the constant term
   qpb_spinor_ax(sum, (qpb_complex) {constant_term, 0.}, x);
@@ -449,7 +454,7 @@ qpb_overlap_Zolotarev(qpb_spinor_field y, qpb_spinor_field x)
         Dov,m(x) = (rho+overlap_mass/2)*x+ (rho-overlap_mass/2)*g5(sign(X))
   */
   
-  qpb_spinor_field z = ov_temp_vecs[1];
+  qpb_spinor_field z = ov_temp_vecs[2];
 
   qpb_double overlap_mass = ov_params.mass; // Overlap operator Dov,m mass
   qpb_double rho = ov_params.rho;
@@ -479,11 +484,11 @@ int
 qpb_congrad_overlap_Zolotarev(qpb_spinor_field x, qpb_spinor_field b, \
                                         qpb_double CG_epsilon, int CG_max_iter)
 {
-  qpb_spinor_field p = ov_temp_vecs[2];
-  qpb_spinor_field r = ov_temp_vecs[3];
-  qpb_spinor_field y = ov_temp_vecs[4];
-  qpb_spinor_field w = ov_temp_vecs[5];
-  qpb_spinor_field bprime = ov_temp_vecs[6];
+  qpb_spinor_field p = ov_temp_vecs[3];
+  qpb_spinor_field r = ov_temp_vecs[4];
+  qpb_spinor_field y = ov_temp_vecs[5];
+  qpb_spinor_field w = ov_temp_vecs[6];
+  qpb_spinor_field bprime = ov_temp_vecs[7];
 
   int n_reeval = 100;
   int n_echo = 100;

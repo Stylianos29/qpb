@@ -260,7 +260,7 @@ qpb_gamma5_sign_function_of_X_pfrac(qpb_spinor_field y, qpb_spinor_field x)
 
   qpb_mscongrad(yMS, x, ov_params.gauge_ptr, ov_params.clover, kernel_kappa, \
     KL_diagonal_order, shifts, ov_params.c_sw, MS_solver_precision, \
-    MS_maximum_solver_iterations);
+    MS_maximum_solver_iterations, 1.0);
 
   // Initialize sum with the constant term
   qpb_spinor_ax(sum, (qpb_complex) {constant_term, 0.}, x);
@@ -505,7 +505,7 @@ A_op_temp(qpb_spinor_field y, qpb_spinor_field x)
 
   qpb_mscongrad(yMS, x, ov_params.gauge_ptr, ov_params.clover, kernel_kappa, \
     KL_diagonal_order, isolated_shifts, ov_params.c_sw, MS_solver_precision, \
-    MS_maximum_solver_iterations);
+    MS_maximum_solver_iterations, 1.0);
 
   qpb_spinor_field_set_zero(y);
   for(int i=0; i<KL_diagonal_order; i++)
@@ -555,7 +555,7 @@ A_op(qpb_spinor_field y, qpb_spinor_field x, int upper_threshold)
 
   qpb_mscongrad(yMS, x, ov_params.gauge_ptr, ov_params.clover, kernel_kappa, \
     count, isolated_shifts, ov_params.c_sw, MS_solver_precision, \
-    MS_maximum_solver_iterations);
+    MS_maximum_solver_iterations, 1.0);
 
   qpb_spinor_field_set_zero(y);
   for(int i=0; i<count; i++)
@@ -602,7 +602,7 @@ B_op_temp(qpb_spinor_field y, qpb_spinor_field x)
 
   qpb_mscongrad(yMS, x, ov_params.gauge_ptr, ov_params.clover, kernel_kappa, \
     KL_diagonal_order, isolated_shifts, ov_params.c_sw, MS_solver_precision, \
-    MS_maximum_solver_iterations);
+    MS_maximum_solver_iterations, 1.0);
 
   qpb_spinor_field_set_zero(y);
   for(int i=0; i<KL_diagonal_order; i++)
@@ -652,7 +652,7 @@ B_op(qpb_spinor_field y, qpb_spinor_field x, int upper_threshold)
 
   qpb_mscongrad(yMS, x, ov_params.gauge_ptr, ov_params.clover, kernel_kappa, \
     count, isolated_shifts, ov_params.c_sw, MS_solver_precision, \
-    MS_maximum_solver_iterations);
+    MS_maximum_solver_iterations, 1.0);
 
   qpb_spinor_field_set_zero(y);
   for(int i=0; i<count; i++)
@@ -699,7 +699,7 @@ C_op_temp(qpb_spinor_field z, qpb_spinor_field y, qpb_spinor_field x)
 
   qpb_mscongrad(yMS, x, ov_params.gauge_ptr, ov_params.clover, kernel_kappa, \
     KL_diagonal_order, isolated_shifts, ov_params.c_sw, MS_solver_precision, \
-    MS_maximum_solver_iterations);
+    MS_maximum_solver_iterations, 1.0);
 
   // Pnn part
   qpb_spinor_field_set_zero(y);
@@ -777,7 +777,7 @@ C_op(qpb_spinor_field y, qpb_spinor_field z, qpb_spinor_field x, int upper_thres
 
   qpb_mscongrad(yMS, x, ov_params.gauge_ptr, ov_params.clover, kernel_kappa, \
     count, isolated_shifts, ov_params.c_sw, MS_solver_precision, \
-    MS_maximum_solver_iterations);
+    MS_maximum_solver_iterations, 1.0);
 
   qpb_spinor_field_set_zero(y);
   for(int i=Qstart; i<count; i+=2)

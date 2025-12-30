@@ -10,7 +10,7 @@
 #include <qpb_dslash_wrappers.h>
 #include <qpb_stop_watch.h>
 
-#define QPB_MSCONGRAD_NUMB_TEMP_VECS 3
+#define QPB_MSCONGRAD_NUMB_TEMP_VECS 4
 #define MAX_NUMB_SHIFTS 256
 
 qpb_spinor_field mscongrad_temp_vecs[QPB_MSCONGRAD_NUMB_TEMP_VECS + MAX_NUMB_SHIFTS];
@@ -47,14 +47,17 @@ qpb_mscongrad_finalize(int numb_shifts)
 int
 qpb_mscongrad(qpb_spinor_field *x, qpb_spinor_field b, void * gauge,
 	      qpb_clover_term clover, qpb_double kappa, int numb_shifts, qpb_double *sigmas,
-	      qpb_double c_sw, qpb_double epsilon, int max_iter)
+	      qpb_double c_sw, qpb_double epsilon, int max_iter, qpb_double factor)
 {
   int iters = 0;
   const int n_echo = 10, n_reeval = 100, n_check_converged = 10;
 
+  qpb_complex kernel_factor = (qpb_complex){factor, 0.};
+
   qpb_spinor_field r = mscongrad_temp_vecs[0];
   qpb_spinor_field y = mscongrad_temp_vecs[1];
   qpb_spinor_field w = mscongrad_temp_vecs[2];
+  qpb_spinor_field unscaled = mscongrad_temp_vecs[3];
 
   /*
    *  Sort shifts in ascending order
@@ -87,9 +90,9 @@ qpb_mscongrad(qpb_spinor_field *x, qpb_spinor_field b, void * gauge,
   qpb_spinor_field p_s[ns];
   qpb_spinor_field p;
 
-  p = mscongrad_temp_vecs[3];
+  p = mscongrad_temp_vecs[4];
   for(int s=0; s<ns; s++)
-    p_s[s] = mscongrad_temp_vecs[4+s];
+    p_s[s] = mscongrad_temp_vecs[5+s];
   
   qpb_double res_norm, b_norm;
   qpb_complex_double alpha_s[ns], alpha;
@@ -190,9 +193,11 @@ qpb_mscongrad(qpb_spinor_field *x, qpb_spinor_field b, void * gauge,
        * D^+ D on p[0] and add min(shift)
        */
       dslash_count+=1;
-      dslash_func(w, p, dslash_args);
+      dslash_func(unscaled, p, dslash_args);
+      qpb_spinor_ax(w, kernel_factor, unscaled);
       dslash_count+=1;
-      dslash_func(y, w, dslash_args);
+      dslash_func(unscaled, w, dslash_args);
+      qpb_spinor_ax(y, kernel_factor, unscaled);
 
       qpb_spinor_axpy(w, c_sigma0, p, y);
 
@@ -230,9 +235,11 @@ qpb_mscongrad(qpb_spinor_field *x, qpb_spinor_field b, void * gauge,
       if(iters % n_reeval == 0)
 	{
 	  dslash_count+=1;
-    dslash_func(w, x[0], dslash_args);
+    dslash_func(unscaled, x[0], dslash_args);
+    qpb_spinor_ax(w, kernel_factor, unscaled);
 	  dslash_count+=1;
-    dslash_func(y, w, dslash_args);
+    dslash_func(unscaled, w, dslash_args);
+    qpb_spinor_ax(y, kernel_factor, unscaled);
 	  qpb_spinor_axpy(y, c_sigma0, x[0], y);
 	  qpb_spinor_xmy(r, b, y);
 	}
@@ -280,9 +287,11 @@ qpb_mscongrad(qpb_spinor_field *x, qpb_spinor_field b, void * gauge,
 		  qpb_complex shift = (qpb_complex){sigmas[s+1], 0.};
 		  qpb_double res_s;
 		  dslash_count+=1;
-      dslash_func(y, x[s+1], dslash_args);
+      dslash_func(unscaled, x[s+1], dslash_args);
+      qpb_spinor_ax(y, kernel_factor, unscaled);
 		  dslash_count+=1;
-      dslash_func(w, y, dslash_args);
+      dslash_func(unscaled, y, dslash_args);
+      qpb_spinor_ax(w, kernel_factor, unscaled);
 		  qpb_spinor_axpy(w, shift, x[s+1], w);
 		  qpb_spinor_xmy(y, b, w);
 		  qpb_spinor_xdotx(&res_s, y);
@@ -297,9 +306,11 @@ qpb_mscongrad(qpb_spinor_field *x, qpb_spinor_field b, void * gauge,
   qpb_double res_s[ns];
 
   dslash_count+=1;
-  dslash_func(y, x[0], dslash_args);
+  dslash_func(unscaled, x[0], dslash_args);
+  qpb_spinor_ax(y, kernel_factor, unscaled);
   dslash_count+=1;
-  dslash_func(w, y, dslash_args);
+  dslash_func(unscaled, y, dslash_args);
+  qpb_spinor_ax(w, kernel_factor, unscaled);
   qpb_spinor_axpy(w, c_sigma0, x[0], w);
   qpb_spinor_xmy(r, b, w);
   qpb_spinor_xdotx(&res_norm, r);
@@ -307,9 +318,11 @@ qpb_mscongrad(qpb_spinor_field *x, qpb_spinor_field b, void * gauge,
     {
       qpb_complex shift = (qpb_complex){sigmas[s+1], 0.};
       dslash_count+=1;
-      dslash_func(y, x[s+1], dslash_args);
+      dslash_func(unscaled, x[s+1], dslash_args);
+      qpb_spinor_ax(y, kernel_factor, unscaled);
       dslash_count+=1;
-      dslash_func(w, y, dslash_args);
+      dslash_func(unscaled, y, dslash_args);
+      qpb_spinor_ax(w, kernel_factor, unscaled);
       qpb_spinor_axpy(w, shift, x[s+1], w);
       qpb_spinor_xmy(r, b, w);
       qpb_spinor_xdotx(&res_s[s], r);

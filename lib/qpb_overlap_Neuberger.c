@@ -331,7 +331,7 @@ qpb_gamma5_sign_function_of_X_Neuberger(qpb_spinor_field y, qpb_spinor_field x)
 
   qpb_mscongrad(yMS, x, ov_params.gauge_ptr, ov_params.clover, kernel_kappa, \
     KL_diagonal_order, shifts, ov_params.c_sw, MS_solver_precision, \
-    MS_maximum_solver_iterations);
+    MS_maximum_solver_iterations, 1.0);
 
   // Add the partial fraction terms
   qpb_spinor_field_set_zero(sum);
