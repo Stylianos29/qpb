@@ -29,7 +29,7 @@
 #include <gsl/gsl_sf_elljac.h>
 
 
-#define OVERLAP_NUMB_TEMP_VECS 7
+#define OVERLAP_NUMB_TEMP_VECS 8
 #define MSCG_NUMB_TEMP_VECS 20
 
 
@@ -77,7 +77,7 @@ calculate_b_coefficients(qpb_double *b, qpb_double *c, int n)
     {
       /* Numerator: product over k=1 to n of (c_{2k} - c_{2i-1}) */
       qpb_double numerator = 1.0;
-      for (int k = 1; k <= n; k++)
+      for (int k = 1; k <= n-1; k++)
         numerator *= c[2*k-1] - c[2*i-2];
         
       qpb_double denominator = 1.0;
@@ -335,12 +335,12 @@ qpb_overlap_Zolotarev_init(void * gauge, qpb_clover_term clover, \
                                   c, Zolotarev_order, \
                                   ov_params.min_eigv, ov_params.max_eigv);
 
-    constant_term = normalization_constant / ov_params.min_eigv;
+    constant_term = c[2*Zolotarev_order-1] * ov_params.min_eigv * ov_params.min_eigv;
 
     for(int i=0; i<Zolotarev_order; i++)
     {
       shifts[i] = c[2*i] * ov_params.min_eigv * ov_params.min_eigv;
-      numerators[i] = normalization_constant * b[i] * ov_params.min_eigv;
+      numerators[i] = normalization_constant * b[i] / ov_params.min_eigv;
       // print("numerator[%d] = %.25f, shift[%d] = %.25f\n", i, numerators[i], \
                                                               i, shifts[i]);
     }
@@ -407,13 +407,34 @@ D_op(qpb_spinor_field y, qpb_spinor_field x)
 }
 
 
+INLINE void
+X_squared_op(qpb_spinor_field y, qpb_spinor_field x)
+{
+  /* Implements γ5( (a*D - ρ)( γ5( (a*D - ρ)(x) ) ) ) */
+
+  qpb_spinor_field z = ov_temp_vecs[0];
+
+  void *dslash_args[4];
+
+  dslash_args[0] = ov_params.gauge_ptr;
+  dslash_args[1] = &ov_params.m_bare;
+  dslash_args[2] = &ov_params.clover;
+  dslash_args[3] = &ov_params.c_sw;
+
+  ov_params.g5_dslash_op(z, x, dslash_args);
+  ov_params.g5_dslash_op(y, z, dslash_args);
+
+  return;
+}
+
+
 void
 qpb_gamma5_sign_function_of_X_Zolotarev(qpb_spinor_field y, qpb_spinor_field x)
 {
   /* Implements: γ5(sign(X(x))) = γ5(X(c_0 + Sum_{i=1}^{n} c_i/(X^2+σ_i) )),
       with X(x) = γ5(D(x) - ρ*x) . */
 
-  qpb_spinor_field sum = ov_temp_vecs[0];
+  qpb_spinor_field sum = ov_temp_vecs[1];
 
   qpb_spinor_field yMS[Zolotarev_order];
   for(int sigma=0; sigma<Zolotarev_order; sigma++)
@@ -430,12 +451,18 @@ qpb_gamma5_sign_function_of_X_Zolotarev(qpb_spinor_field y, qpb_spinor_field x)
     Zolotarev_order, shifts, ov_params.c_sw, MS_solver_precision, \
     MS_maximum_solver_iterations);
 
-  // Initialize sum with the constant term
-  qpb_spinor_ax(sum, (qpb_complex) {constant_term, 0.}, x);
+  // Initialize sum to zero
+  qpb_spinor_field_set_zero(sum);  
+
   // And then add the rest of the partial fraction terms
   for(int sigma=0; sigma<Zolotarev_order; sigma++)
     qpb_spinor_axpy(sum, (qpb_complex) {numerators[sigma], 0.}, yMS[sigma], sum);
 
+  // Act with X^2 + c[2n] term
+  X_squared_op(y, sum);
+  qpb_spinor_axpy(sum, (qpb_complex) {constant_term, 0.}, sum, y);
+
+  // Act with gamma5 X term
   D_op(y, sum);
 
   return;
@@ -449,7 +476,7 @@ qpb_overlap_Zolotarev(qpb_spinor_field y, qpb_spinor_field x)
         Dov,m(x) = (rho+overlap_mass/2)*x+ (rho-overlap_mass/2)*g5(sign(X))
   */
   
-  qpb_spinor_field z = ov_temp_vecs[1];
+  qpb_spinor_field z = ov_temp_vecs[2];
 
   qpb_double overlap_mass = ov_params.mass; // Overlap operator Dov,m mass
   qpb_double rho = ov_params.rho;
@@ -479,11 +506,11 @@ int
 qpb_congrad_overlap_Zolotarev(qpb_spinor_field x, qpb_spinor_field b, \
                                         qpb_double CG_epsilon, int CG_max_iter)
 {
-  qpb_spinor_field p = ov_temp_vecs[2];
-  qpb_spinor_field r = ov_temp_vecs[3];
-  qpb_spinor_field y = ov_temp_vecs[4];
-  qpb_spinor_field w = ov_temp_vecs[5];
-  qpb_spinor_field bprime = ov_temp_vecs[6];
+  qpb_spinor_field p = ov_temp_vecs[3];
+  qpb_spinor_field r = ov_temp_vecs[4];
+  qpb_spinor_field y = ov_temp_vecs[5];
+  qpb_spinor_field w = ov_temp_vecs[6];
+  qpb_spinor_field bprime = ov_temp_vecs[7];
 
   int n_reeval = 100;
   int n_echo = 100;
