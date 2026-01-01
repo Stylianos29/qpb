@@ -29,6 +29,15 @@ static int KL_diagonal_order;
 static qpb_double MS_solver_precision;
 static int MS_maximum_solver_iterations;
 
+static qpb_double rho_plus;
+static qpb_double rho_minus;
+
+static qpb_complex rho_ratio;
+static qpb_complex inverse_rho_minus;
+
+static qpb_double kernel_kappa;
+
+
 static qpb_double *numerators;
 static qpb_double *shifts;
 static qpb_double constant_term;
@@ -74,6 +83,14 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover, \
     ov_params.m_bare = -rho; // Kernel operator bare mass
     ov_params.mass = mass;
     ov_params.clover = clover;
+
+    rho_plus = rho + 0.5*mass;
+    rho_minus = rho - 0.5*mass;
+
+    rho_ratio = (qpb_complex) {rho_plus/rho_minus, 0.};
+    inverse_rho_minus = (qpb_complex) {1.0/rho_minus, 0.};
+
+    kernel_kappa = 1./(2*ov_params.m_bare+8.);
     
     switch(which_dslash_op)
     {
@@ -144,7 +161,7 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover, \
 
 
 void
-qpb_overlap_kl_pfrac_finalize()
+qpb_rescaled_overlap_kl_pfrac_finalize()
 {
   qpb_comm_halo_spinor_field_finalize();
   for(int i=0; i<OVERLAP_NUMB_TEMP_VECS; i++)
@@ -201,9 +218,6 @@ qpb_gamma5_sign_function_of_X_pfrac(qpb_spinor_field y, qpb_spinor_field x)
     qpb_spinor_field_set_zero(yMS[sigma]);
   }
 
-  qpb_double kernel_mass = ov_params.m_bare; // Kernel operator bare mass
-  qpb_double kernel_kappa = 1./(2*kernel_mass+8.);
-
   qpb_mscongrad(yMS, x, ov_params.gauge_ptr, ov_params.clover, kernel_kappa, \
     KL_diagonal_order, shifts, ov_params.c_sw, MS_solver_precision, \
     MS_maximum_solver_iterations);
@@ -221,32 +235,26 @@ qpb_gamma5_sign_function_of_X_pfrac(qpb_spinor_field y, qpb_spinor_field x)
 
 
 void
-qpb_overlap_kl_pfrac(qpb_spinor_field y, qpb_spinor_field x)
+qpb_rescaled_overlap_kl_pfrac(qpb_spinor_field y, qpb_spinor_field x)
 {
   /* Implements:
-        Dov,m(x) = (rho+overlap_mass/2)*x+ (rho-overlap_mass/2)*g5(sign(X))
+        Dov,m(x) = [(rho+overlap_mass/2)/(rho-overlap_mass/2)]*x + g5(sign(X))
   */
   
   qpb_spinor_field z = ov_temp_vecs[1];
 
-  qpb_double overlap_mass = ov_params.mass; // Overlap operator Dov,m mass
-  qpb_double rho = ov_params.rho;
-
-  qpb_complex a = {rho + 0.5*overlap_mass, 0.};
-  qpb_complex b = {rho - 0.5*overlap_mass, 0.};
-
   qpb_gamma5_sign_function_of_X_pfrac(z, x);
 
-  qpb_spinor_axpby(y, a, x, b, z);
+  qpb_spinor_axpy(y, rho_ratio, x, z);
 
   return;
 }
 
 
 void
-qpb_gamma5_overlap_kl_pfrac(qpb_spinor_field y, qpb_spinor_field x)
+qpb_gamma5_rescaled_overlap_kl_pfrac(qpb_spinor_field y, qpb_spinor_field x)
 {
-  qpb_overlap_kl_pfrac(y, x);
+  qpb_rescaled_overlap_kl_pfrac(y, x);
   qpb_spinor_gamma5(y, y);
 
   return;
@@ -271,16 +279,19 @@ qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b, \
   qpb_complex_double alpha = {1, 0}, omega = {1, 0};
   qpb_complex_double beta, gamma;
 
+  // Rescale b: b = (rho - overlap_mass/2)^(-1) * b
+  qpb_spinor_ax(b, inverse_rho_minus, b);
+
   qpb_spinor_gamma5(w, b);
-  qpb_gamma5_overlap_kl_pfrac(bprime, w);
+  qpb_gamma5_rescaled_overlap_kl_pfrac(bprime, w);
 
   qpb_spinor_xdotx(&b_norm, bprime);
 
   qpb_spinor_field_set_zero(x);
 
   /* r0 = bprime - A(x) */
-  // qpb_gamma5_overlap_kl_pfrac(w, x);
-  // qpb_gamma5_overlap_kl_pfrac(p, w);
+  // qpb_gamma5_rescaled_overlap_kl_pfrac(w, x);
+  // qpb_gamma5_rescaled_overlap_kl_pfrac(p, w);
   // qpb_spinor_xmy(r, bprime, p);
   
   /* Or r0 = bprime for short since x0 = 0 */
@@ -303,8 +314,8 @@ qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b, \
     }
 
     /* y = A(p) */
-    qpb_gamma5_overlap_kl_pfrac(w, p);
-    qpb_gamma5_overlap_kl_pfrac(y, w);
+    qpb_gamma5_rescaled_overlap_kl_pfrac(w, p);
+    qpb_gamma5_rescaled_overlap_kl_pfrac(y, w);
 
     /* omega = dot(p, A(p)) */
     qpb_spinor_xdoty(&omega, p, y);
@@ -317,8 +328,8 @@ qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b, \
 
     if(iters % n_reeval == 0) 
     {
-      qpb_gamma5_overlap_kl_pfrac(w, x);
-      qpb_gamma5_overlap_kl_pfrac(y, w);
+      qpb_gamma5_rescaled_overlap_kl_pfrac(w, x);
+      qpb_gamma5_rescaled_overlap_kl_pfrac(y, w);
       qpb_spinor_xmy(r, bprime, y);
 	  }
     else
@@ -341,8 +352,8 @@ qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b, \
 
   t = qpb_stop_watch(t);
 
-  qpb_gamma5_overlap_kl_pfrac(w, x);
-  qpb_gamma5_overlap_kl_pfrac(y, w);
+  qpb_gamma5_rescaled_overlap_kl_pfrac(w, x);
+  qpb_gamma5_rescaled_overlap_kl_pfrac(y, w);
   qpb_spinor_xmy(r, bprime, y);
   qpb_spinor_xdotx(&res_norm, r);
 
