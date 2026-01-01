@@ -161,7 +161,7 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover, \
 
 
 void
-qpb_rescaled_overlap_kl_pfrac_finalize()
+qpb_overlap_kl_pfrac_finalize()
 {
   qpb_comm_halo_spinor_field_finalize();
   for(int i=0; i<OVERLAP_NUMB_TEMP_VECS; i++)
