@@ -16,7 +16,7 @@
 #include <math.h>
 
 
-#define OVERLAP_NUMB_TEMP_VECS 7
+#define OVERLAP_NUMB_TEMP_VECS 9
 #define MSCG_NUMB_TEMP_VECS 20
 
 
@@ -29,9 +29,8 @@ static int KL_diagonal_order;
 static qpb_double MS_solver_precision;
 static int MS_maximum_solver_iterations;
 
-static qpb_double *numerators;
-static qpb_double *shifts;
 static qpb_double constant_term;
+static qpb_double *c;
 
 
 void
@@ -108,34 +107,20 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover, \
     MS_solver_precision = ms_epsilon;
     MS_maximum_solver_iterations = ms_max_iter;
 
-    /* Calculate the numerical terms of the partial fraction expansion */
-    shifts = qpb_alloc(sizeof(qpb_double)*KL_diagonal_order);
-    numerators = qpb_alloc(sizeof(qpb_double)*KL_diagonal_order);
+    c = qpb_alloc(sizeof(qpb_double)*2*KL_diagonal_order);
 
-    constant_term = 1.0/((qpb_double) (2*KL_diagonal_order+1));
-
-    for(int i=0; i<KL_diagonal_order; i++)
+    /* Calculate the numerical constants of the product form expansion
+    of the sign function */
+    qpb_double constant_term = 1.0/((qpb_double) (2*KL_diagonal_order+1));
+    for(int m=0; m<2*KL_diagonal_order; m++)
     {
-      qpb_double trig_arg = M_PI*(i+0.5)*constant_term;
-      shifts[i] = pow(tan(trig_arg), 2);
-      numerators[i] = 2*constant_term/powl(cos(trig_arg), 2);
-      // print("numerator[%d] = %.25f, shift[%d] = %.25f\n", i, numerators[i], \
-                                                              i, shifts[i]);
+      qpb_double trig_arg = m*constant_term*0.5*M_PI;
+      c[m] = pow(tan(trig_arg), 2);
+      print("c[%d] = %.25f\n", c[m], m);
     }
 
-    // Modify the numerical constants of the partial fraction expansions using
-    // the scaling parameter
-    if (scaling_factor != 1.0)
-    {
-      constant_term *= 1/sqrt(scaling_factor);
-      for(int i=0; i<KL_diagonal_order; i++)
-      {
-        numerators[i] *= sqrt(scaling_factor);
-        shifts[i] *= scaling_factor;
-      }
-    }
-
-    qpb_mscongrad_init(KL_diagonal_order);
+    // TEMPORARY: Only initialize half the vectors for MSCG
+    qpb_mscongrad_init(KL_diagonal_order/2);
 
   }
 	
@@ -158,19 +143,16 @@ qpb_overlap_kl_pfrac_finalize()
   
   ov_params.initialized = 0;
   
-  qpb_mscongrad_finalize(KL_diagonal_order);
-
-  free(numerators);
-  free(shifts);
+  qpb_mscongrad_finalize(KL_diagonal_order/2);
   
   return;
 }
 
 
 INLINE void
-D_op(qpb_spinor_field y, qpb_spinor_field x)
+X_op(qpb_spinor_field y, qpb_spinor_field x)
 {
-  /* Implements D - rho*I */
+  /* X ≡ γ5 (a*D - ρ) */
 
   void *dslash_args[4];
 
@@ -178,23 +160,24 @@ D_op(qpb_spinor_field y, qpb_spinor_field x)
   dslash_args[1] = &ov_params.m_bare;
   dslash_args[2] = &ov_params.clover;
   dslash_args[3] = &ov_params.c_sw;
-  
-  ov_params.dslash_op(y, x, dslash_args);
-  
+
+  ov_params.g5_dslash_op(y, x, dslash_args);
+
   return;
 }
 
 
 void
-qpb_gamma5_sign_function_of_X_pfrac(qpb_spinor_field y, qpb_spinor_field x)
+qpb_first_degree_rational(qpb_spinor_field y, qpb_spinor_field x, qpb_double a, qpb_double b)
 {
-  /* Implements: γ5(sign(X(x))) = γ5(X(c_0 + Sum_{i=1}^{n} c_i/(X^2+σ_i) )),
-      with X(x) = γ5(D(x) - ρ*x) . */
+  /* Implements the partial fraction decomposition of a rational:
+    (X^2 +a)/(X^2 + b) = 1 + (a-b)/(X^2 + b) .
+  */
 
-  qpb_spinor_field sum = ov_temp_vecs[0];
+  qpb_double *shift = &b;
 
-  qpb_spinor_field yMS[KL_diagonal_order];
-  for(int sigma=0; sigma<KL_diagonal_order; sigma++)
+  qpb_spinor_field yMS[KL_diagonal_order/2];
+  for(int sigma=0; sigma<KL_diagonal_order/2; sigma++)
   {
     yMS[sigma] = mscg_temp_vecs[sigma];
     // It needs to re-initialized to 0 with every call of the function
@@ -205,49 +188,67 @@ qpb_gamma5_sign_function_of_X_pfrac(qpb_spinor_field y, qpb_spinor_field x)
   qpb_double kernel_kappa = 1./(2*kernel_mass+8.);
 
   qpb_mscongrad(yMS, x, ov_params.gauge_ptr, ov_params.clover, kernel_kappa, \
-    KL_diagonal_order, shifts, ov_params.c_sw, MS_solver_precision, \
+    KL_diagonal_order/2, shift, ov_params.c_sw, MS_solver_precision, \
     MS_maximum_solver_iterations);
 
-  // Initialize sum with the constant term
-  qpb_spinor_ax(sum, (qpb_complex) {constant_term, 0.}, x);
-  // And then add the rest of the partial fraction terms
-  for(int sigma=0; sigma<KL_diagonal_order; sigma++)
-    qpb_spinor_axpy(sum, (qpb_complex) {numerators[sigma], 0.}, yMS[sigma], sum);
-
-  D_op(y, sum);
+  qpb_spinor_axpy(y, (qpb_complex) {a-b, 0.}, yMS[0], x);
 
   return;
 }
 
 
 void
-qpb_overlap_kl_pfrac(qpb_spinor_field y, qpb_spinor_field x)
+qpb_overlap_kl_pfrac_multiply_down(qpb_spinor_field y, qpb_spinor_field x)
 {
-  /* Implements:
-        Dov,m(x) = (rho+overlap_mass/2)*x+ (rho-overlap_mass/2)*g5(sign(X))
+  /* Implements: 
+      
+    (X^2 + c3)/(X^2 + c4) γ5 Dov,m(x) 
+        = ρ+ (X^2 + c3)/(X^2 + c4) γ5 x + ρ- Χ (X^2 + c2)/(X^2 + c1)
+
+    with ρ+ = ρ + overlap_mass/2 and ρ- = ρ - overlap_mass/2.  
   */
-  
-  qpb_spinor_field z = ov_temp_vecs[1];
 
-  qpb_double overlap_mass = ov_params.mass; // Overlap operator Dov,m mass
-  qpb_double rho = ov_params.rho;
+  qpb_complex rho_plus = {rho + 0.5*overlap_mass, 0.};
+  qpb_complex rho_minus = {rho - 0.5*overlap_mass, 0.};
 
-  qpb_complex a = {rho + 0.5*overlap_mass, 0.};
-  qpb_complex b = {rho - 0.5*overlap_mass, 0.};
+  qpb_spinor_field z = ov_temp_vecs[0];
+  qpb_spinor_field w = ov_temp_vecs[1];
 
-  qpb_gamma5_sign_function_of_X_pfrac(z, x);
+  qpb_spinor_gamma5(y, x);
+  qpb_first_degree_rational(z, y, c[2], c[3]);
 
-  qpb_spinor_axpby(y, a, x, b, z);
+  qpb_first_degree_rational(y, x, c[1], c[0]);
+  X_op(w, y);
+
+  qpb_spinor_axpby(y, (qpb_complex) {rho_plus, 0.}, z, (qpb_complex) {rho_minus*constant_term, 0.}, w);
 
   return;
 }
 
 
 void
-qpb_gamma5_overlap_kl_pfrac(qpb_spinor_field y, qpb_spinor_field x)
+qpb_conjugate_overlap_kl_pfrac_multiply_down(qpb_spinor_field y, qpb_spinor_field x)
 {
-  qpb_overlap_kl_pfrac(y, x);
-  qpb_spinor_gamma5(y, y);
+  /* Implements: 
+      
+      ρ+ γ5 (X^2 + c3)/(X^2 + c4) x + ρ- Χ (X^2 + c2)/(X^2 + c1)
+
+    with ρ+ = ρ + overlap_mass/2 and ρ- = ρ - overlap_mass/2.  
+  */
+
+  qpb_complex rho_plus = {rho + 0.5*overlap_mass, 0.};
+  qpb_complex rho_minus = {rho - 0.5*overlap_mass, 0.};
+
+  qpb_spinor_field z = ov_temp_vecs[2];
+  qpb_spinor_field w = ov_temp_vecs[3];
+
+  qpb_first_degree_rational(y, x, c[2], c[3]);
+  qpb_spinor_gamma5(z, y);
+
+  qpb_first_degree_rational(y, x, c[1], c[0]);
+  X_op(w, y);
+
+  qpb_spinor_axpby(y, (qpb_complex) {rho_plus, 0.}, z, (qpb_complex) {rho_minus*constant_term, 0.}, w);
 
   return;
 }
@@ -257,30 +258,33 @@ int
 qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b, \
                                         qpb_double CG_epsilon, int CG_max_iter)
 {
-  qpb_spinor_field p = ov_temp_vecs[2];
-  qpb_spinor_field r = ov_temp_vecs[3];
-  qpb_spinor_field y = ov_temp_vecs[4];
-  qpb_spinor_field w = ov_temp_vecs[5];
-  qpb_spinor_field bprime = ov_temp_vecs[6];
+  qpb_spinor_field p = ov_temp_vecs[4];
+  qpb_spinor_field r = ov_temp_vecs[5];
+  qpb_spinor_field y = ov_temp_vecs[6];
+  qpb_spinor_field w = ov_temp_vecs[7];
+  qpb_spinor_field bprime = ov_temp_vecs[8];
 
   int n_reeval = 100;
   int n_echo = 100;
   int iters = 0;
+
   
   qpb_double res_norm, b_norm;
   qpb_complex_double alpha = {1, 0}, omega = {1, 0};
   qpb_complex_double beta, gamma;
+  
+  qpb_spinor_gamma5(b, b);
+  qpb_first_degree_rational(w, b, c[2], c[3]);
 
-  qpb_spinor_gamma5(w, b);
-  qpb_gamma5_overlap_kl_pfrac(bprime, w);
+  qpb_conjugate_overlap_kl_pfrac_multiply_down(bprime, w);
 
   qpb_spinor_xdotx(&b_norm, bprime);
 
   qpb_spinor_field_set_zero(x);
 
   /* r0 = bprime - A(x) */
-  // qpb_gamma5_overlap_kl_pfrac(w, x);
-  // qpb_gamma5_overlap_kl_pfrac(p, w);
+  // qpb_overlap_kl_pfrac_multiply_down(w, x);
+  // qpb_conjugate_overlap_kl_pfrac_multiply_down(p, w);
   // qpb_spinor_xmy(r, bprime, p);
   
   /* Or r0 = bprime for short since x0 = 0 */
@@ -303,8 +307,8 @@ qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b, \
     }
 
     /* y = A(p) */
-    qpb_gamma5_overlap_kl_pfrac(w, p);
-    qpb_gamma5_overlap_kl_pfrac(y, w);
+    qpb_overlap_kl_pfrac_multiply_down(w, p);
+    qpb_conjugate_overlap_kl_pfrac_multiply_down(y, w);
 
     /* omega = dot(p, A(p)) */
     qpb_spinor_xdoty(&omega, p, y);
@@ -317,8 +321,8 @@ qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b, \
 
     if(iters % n_reeval == 0) 
     {
-      qpb_gamma5_overlap_kl_pfrac(w, x);
-      qpb_gamma5_overlap_kl_pfrac(y, w);
+      qpb_overlap_kl_pfrac_multiply_down(w, x);
+      qpb_conjugate_overlap_kl_pfrac_multiply_down(y, w);
       qpb_spinor_xmy(r, bprime, y);
 	  }
     else
@@ -341,8 +345,8 @@ qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b, \
 
   t = qpb_stop_watch(t);
 
-  qpb_gamma5_overlap_kl_pfrac(w, x);
-  qpb_gamma5_overlap_kl_pfrac(y, w);
+  qpb_overlap_kl_pfrac_multiply_down(w, x);
+  qpb_conjugate_overlap_kl_pfrac_multiply_down(y, w);
   qpb_spinor_xmy(r, bprime, y);
   qpb_spinor_xdotx(&res_norm, r);
 
