@@ -135,12 +135,11 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover, \
       // print("c[%d] = %.25f\n", c[m], m);
     }
 
-    left_numerator = c[2];
-    left_denominator = c[3];
-    right_numerator = c[1];
-    right_denominator = c[0];
+    left_numerator = c[0];
+    left_denominator = c[1];
+    right_numerator = c[3];
+    right_denominator = c[2];
 
-    // TEMPORARY: Only initialize half the vectors for MSCG
     qpb_mscongrad_init(KL_diagonal_order);
 
   }
@@ -257,7 +256,8 @@ qpb_conjugate_overlap_kl_pfrac_multiply_down(qpb_spinor_field y, qpb_spinor_fiel
   qpb_spinor_field z = ov_temp_vecs[2];
   qpb_spinor_field w = ov_temp_vecs[3];
 
-  qpb_double shifts_array[2] = {c[0], c[3]};
+  // qpb_double shifts_array[2] = {c[0], c[3]};
+  qpb_double shifts_array[2] = {left_denominator, right_denominator};
   qpb_double *shifts = shifts_array;
 
   // Initialize all MSCG temp vectors
@@ -269,16 +269,27 @@ qpb_conjugate_overlap_kl_pfrac_multiply_down(qpb_spinor_field y, qpb_spinor_fiel
     qpb_spinor_field_set_zero(yMS[sigma]);
   }
 
+  // Internally the MSCG sorts the shifts into ascending order
   qpb_mscongrad(yMS, x, ov_params.gauge_ptr, ov_params.clover, kernel_kappa, \
     KL_diagonal_order, shifts, ov_params.c_sw, MS_solver_precision, \
     MS_maximum_solver_iterations);
 
+  int left_fraction_index = 0;
+  int right_fraction_index = 1;
+  if (right_denominator < left_denominator)
+  {
+    left_fraction_index = 1;
+    right_fraction_index = 0;
+  }
+
   // Left fraction
-  qpb_spinor_axpy(y, (qpb_complex) {left_numerator - left_denominator, 0.}, yMS[1], x);
+  qpb_spinor_axpy(y, (qpb_complex) {left_numerator - left_denominator, 0.}, \
+                                                  yMS[left_fraction_index], x);
   qpb_spinor_gamma5(z, y);
 
   // Right fraction
-  qpb_spinor_axpy(y, (qpb_complex) {right_numerator - right_denominator, 0.}, yMS[0], x);
+  qpb_spinor_axpy(y, (qpb_complex) {right_numerator - right_denominator, 0.}, \
+                                                  yMS[right_fraction_index], x);
   X_op(w, y);
 
   qpb_spinor_axpby(y, (qpb_complex) {rho_plus, 0.}, z, \
