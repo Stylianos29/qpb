@@ -122,7 +122,7 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover, \
     {
       qpb_double trig_arg = (m+1)*constant_term*0.5*M_PI;
       c[m] = pow(tan(trig_arg), 2);
-      print("c[%d] = %.25f\n", c[m], m);
+      // print("c[%d] = %.25f\n", c[m], m);
     }
 
     // TEMPORARY: Only initialize half the vectors for MSCG
