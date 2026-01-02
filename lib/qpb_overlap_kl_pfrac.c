@@ -126,7 +126,7 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover, \
     }
 
     // TEMPORARY: Only initialize half the vectors for MSCG
-    qpb_mscongrad_init(KL_diagonal_order/2);
+    qpb_mscongrad_init(KL_diagonal_order);
 
   }
 	
@@ -149,7 +149,7 @@ qpb_overlap_kl_pfrac_finalize()
   
   ov_params.initialized = 0;
   
-  qpb_mscongrad_finalize(KL_diagonal_order/2);
+  qpb_mscongrad_finalize(KL_diagonal_order);
   
   return;
 }
