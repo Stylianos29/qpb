@@ -35,6 +35,11 @@ static qpb_double rho_minus;
 static qpb_double constant_term;
 static qpb_double *c;
 
+static qpb_double left_numerator;
+static qpb_double left_denominator;
+static qpb_double right_numerator;
+static qpb_double right_denominator;
+
 
 void
 qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover, \
@@ -124,6 +129,11 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover, \
       c[m] = pow(tan(trig_arg), 2);
       // print("c[%d] = %.25f\n", c[m], m);
     }
+
+    left_numerator = c[2];
+    left_denominator = c[3];
+    right_numerator = c[1];
+    right_denominator = c[0];
 
     // TEMPORARY: Only initialize half the vectors for MSCG
     qpb_mscongrad_init(KL_diagonal_order);
@@ -218,9 +228,9 @@ qpb_overlap_kl_pfrac_multiply_down(qpb_spinor_field y, qpb_spinor_field x)
   qpb_spinor_field w = ov_temp_vecs[1];
 
   qpb_spinor_gamma5(y, x);
-  qpb_first_degree_rational(z, y, c[2], c[3]);
+  qpb_first_degree_rational(z, y, left_numerator, left_denominator);
 
-  qpb_first_degree_rational(y, x, c[1], c[0]);
+  qpb_first_degree_rational(y, x, right_numerator, right_denominator);
   X_op(w, y);
 
   qpb_spinor_axpby(y, (qpb_complex) {rho_plus, 0.}, z, (qpb_complex) {rho_minus*constant_term, 0.}, w);
@@ -261,10 +271,10 @@ qpb_conjugate_overlap_kl_pfrac_multiply_down(qpb_spinor_field y, qpb_spinor_fiel
     KL_diagonal_order, shifts, ov_params.c_sw, MS_solver_precision, \
     MS_maximum_solver_iterations);
 
-  qpb_spinor_axpy(y, (qpb_complex) {c[2] - c[3], 0.}, yMS[1], x);
+  qpb_spinor_axpy(y, (qpb_complex) {left_numerator - left_denominator, 0.}, yMS[1], x);
   qpb_spinor_gamma5(z, y);
 
-  qpb_spinor_axpy(y, (qpb_complex) {c[1] - c[0], 0.}, yMS[0], x);
+  qpb_spinor_axpy(y, (qpb_complex) {right_numerator - right_denominator, 0.}, yMS[0], x);
   X_op(w, y);
 
   qpb_spinor_axpby(y, (qpb_complex) {rho_plus, 0.}, z, (qpb_complex) {rho_minus*constant_term, 0.}, w);
@@ -293,7 +303,7 @@ qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b, \
   qpb_complex_double beta, gamma;
   
   qpb_spinor_gamma5(b, b);
-  qpb_first_degree_rational(w, b, c[2], c[3]);
+  qpb_first_degree_rational(w, b, left_numerator, left_denominator);
 
   qpb_conjugate_overlap_kl_pfrac_multiply_down(bprime, w);
 
