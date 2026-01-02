@@ -29,6 +29,9 @@ static int KL_diagonal_order;
 static qpb_double MS_solver_precision;
 static int MS_maximum_solver_iterations;
 
+static qpb_double rho_plus;
+static qpb_double rho_minus;
+
 static qpb_double constant_term;
 static qpb_double *c;
 
@@ -73,6 +76,9 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover, \
     ov_params.m_bare = -rho; // Kernel operator bare mass
     ov_params.mass = mass;
     ov_params.clover = clover;
+
+    rho_plus = rho + 0.5*ov_params.mass;
+    rho_minus = rho + 0.5*ov_params.mass;
     
     switch(which_dslash_op)
     {
@@ -114,7 +120,7 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover, \
     qpb_double constant_term = 1.0/((qpb_double) (2*KL_diagonal_order+1));
     for(int m=0; m<2*KL_diagonal_order; m++)
     {
-      qpb_double trig_arg = m*constant_term*0.5*M_PI;
+      qpb_double trig_arg = (m+1)*constant_term*0.5*M_PI;
       c[m] = pow(tan(trig_arg), 2);
       print("c[%d] = %.25f\n", c[m], m);
     }
@@ -208,9 +214,6 @@ qpb_overlap_kl_pfrac_multiply_down(qpb_spinor_field y, qpb_spinor_field x)
     with ρ+ = ρ + overlap_mass/2 and ρ- = ρ - overlap_mass/2.  
   */
 
-  qpb_complex rho_plus = {rho + 0.5*overlap_mass, 0.};
-  qpb_complex rho_minus = {rho - 0.5*overlap_mass, 0.};
-
   qpb_spinor_field z = ov_temp_vecs[0];
   qpb_spinor_field w = ov_temp_vecs[1];
 
@@ -235,9 +238,6 @@ qpb_conjugate_overlap_kl_pfrac_multiply_down(qpb_spinor_field y, qpb_spinor_fiel
 
     with ρ+ = ρ + overlap_mass/2 and ρ- = ρ - overlap_mass/2.  
   */
-
-  qpb_complex rho_plus = {rho + 0.5*overlap_mass, 0.};
-  qpb_complex rho_minus = {rho - 0.5*overlap_mass, 0.};
 
   qpb_spinor_field z = ov_temp_vecs[2];
   qpb_spinor_field w = ov_temp_vecs[3];
