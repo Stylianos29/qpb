@@ -78,7 +78,7 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover, \
     ov_params.clover = clover;
 
     rho_plus = rho + 0.5*ov_params.mass;
-    rho_minus = rho + 0.5*ov_params.mass;
+    rho_minus = rho - 0.5*ov_params.mass;
     
     switch(which_dslash_op)
     {
@@ -117,7 +117,7 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover, \
 
     /* Calculate the numerical constants of the product form expansion
     of the sign function */
-    qpb_double constant_term = 1.0/((qpb_double) (2*KL_diagonal_order+1));
+    constant_term = 1.0/((qpb_double) (2*KL_diagonal_order+1));
     for(int m=0; m<2*KL_diagonal_order; m++)
     {
       qpb_double trig_arg = (m+1)*constant_term*0.5*M_PI;
