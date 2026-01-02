@@ -29,6 +29,8 @@ static int KL_diagonal_order;
 static qpb_double MS_solver_precision;
 static int MS_maximum_solver_iterations;
 
+static qpb_double kernel_kappa;
+
 static qpb_double rho_plus;
 static qpb_double rho_minus;
 
@@ -81,6 +83,9 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover, \
     ov_params.m_bare = -rho; // Kernel operator bare mass
     ov_params.mass = mass;
     ov_params.clover = clover;
+
+    // Kappa from kernel operator bare mass
+    kernel_kappa = 1./(2*ov_params.m_bare+8.);
 
     rho_plus = rho + 0.5*ov_params.mass;
     rho_minus = rho - 0.5*ov_params.mass;
@@ -200,9 +205,6 @@ qpb_first_degree_rational(qpb_spinor_field y, qpb_spinor_field x, qpb_double a, 
     qpb_spinor_field_set_zero(yMS[sigma]);
   }
 
-  qpb_double kernel_mass = ov_params.m_bare; // Kernel operator bare mass
-  qpb_double kernel_kappa = 1./(2*kernel_mass+8.);
-
   qpb_mscongrad(yMS, x, ov_params.gauge_ptr, ov_params.clover, kernel_kappa, \
     KL_diagonal_order/2, shift, ov_params.c_sw, MS_solver_precision, \
     MS_maximum_solver_iterations);
@@ -227,13 +229,16 @@ qpb_overlap_kl_pfrac_multiply_down(qpb_spinor_field y, qpb_spinor_field x)
   qpb_spinor_field z = ov_temp_vecs[0];
   qpb_spinor_field w = ov_temp_vecs[1];
 
+  // Left fraction
   qpb_spinor_gamma5(y, x);
   qpb_first_degree_rational(z, y, left_numerator, left_denominator);
 
+  // Right fraction
   qpb_first_degree_rational(y, x, right_numerator, right_denominator);
   X_op(w, y);
 
-  qpb_spinor_axpby(y, (qpb_complex) {rho_plus, 0.}, z, (qpb_complex) {rho_minus*constant_term, 0.}, w);
+  qpb_spinor_axpby(y, (qpb_complex) {rho_plus, 0.}, z, \
+                              (qpb_complex) {rho_minus*constant_term, 0.}, w);
 
   return;
 }
@@ -264,20 +269,20 @@ qpb_conjugate_overlap_kl_pfrac_multiply_down(qpb_spinor_field y, qpb_spinor_fiel
     qpb_spinor_field_set_zero(yMS[sigma]);
   }
 
-  qpb_double kernel_mass = ov_params.m_bare; // Kernel operator bare mass
-  qpb_double kernel_kappa = 1./(2*kernel_mass+8.);
-
   qpb_mscongrad(yMS, x, ov_params.gauge_ptr, ov_params.clover, kernel_kappa, \
     KL_diagonal_order, shifts, ov_params.c_sw, MS_solver_precision, \
     MS_maximum_solver_iterations);
 
+  // Left fraction
   qpb_spinor_axpy(y, (qpb_complex) {left_numerator - left_denominator, 0.}, yMS[1], x);
   qpb_spinor_gamma5(z, y);
 
+  // Right fraction
   qpb_spinor_axpy(y, (qpb_complex) {right_numerator - right_denominator, 0.}, yMS[0], x);
   X_op(w, y);
 
-  qpb_spinor_axpby(y, (qpb_complex) {rho_plus, 0.}, z, (qpb_complex) {rho_minus*constant_term, 0.}, w);
+  qpb_spinor_axpby(y, (qpb_complex) {rho_plus, 0.}, z, \
+                              (qpb_complex) {rho_minus*constant_term, 0.}, w);
 
   return;
 }
