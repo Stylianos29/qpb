@@ -242,10 +242,29 @@ qpb_conjugate_overlap_kl_pfrac_multiply_down(qpb_spinor_field y, qpb_spinor_fiel
   qpb_spinor_field z = ov_temp_vecs[2];
   qpb_spinor_field w = ov_temp_vecs[3];
 
-  qpb_first_degree_rational(y, x, c[2], c[3]);
+  qpb_double shifts_array[2] = {c[0], c[3]};
+  qpb_double *shifts = shifts_array;
+
+  // Initialize all MSCG temp vectors
+  qpb_spinor_field yMS[KL_diagonal_order];
+  for(int sigma=0; sigma<KL_diagonal_order; sigma++)
+  {
+    yMS[sigma] = mscg_temp_vecs[sigma];
+    // It needs to re-initialized to 0 with every call of the function
+    qpb_spinor_field_set_zero(yMS[sigma]);
+  }
+
+  qpb_double kernel_mass = ov_params.m_bare; // Kernel operator bare mass
+  qpb_double kernel_kappa = 1./(2*kernel_mass+8.);
+
+  qpb_mscongrad(yMS, x, ov_params.gauge_ptr, ov_params.clover, kernel_kappa, \
+    KL_diagonal_order, shifts, ov_params.c_sw, MS_solver_precision, \
+    MS_maximum_solver_iterations);
+
+  qpb_spinor_axpy(y, (qpb_complex) {c[2] - c[3], 0.}, yMS[1], x);
   qpb_spinor_gamma5(z, y);
 
-  qpb_first_degree_rational(y, x, c[1], c[0]);
+  qpb_spinor_axpy(y, (qpb_complex) {c[1] - c[0], 0.}, yMS[0], x);
   X_op(w, y);
 
   qpb_spinor_axpby(y, (qpb_complex) {rho_plus, 0.}, z, (qpb_complex) {rho_minus*constant_term, 0.}, w);
