@@ -266,6 +266,7 @@ qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b, \
   int n_reeval = 100;
   int n_echo = 100;
   int iters = 0;
+  int final_inversion_test = 1;
   
   qpb_double res_norm, b_norm;
   qpb_complex_double alpha = {1, 0}, omega = {1, 0};
@@ -360,5 +361,14 @@ qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b, \
         "t = %g sec\n",
          iters, res_norm, res_norm / b_norm, t);
   
+  if (final_inversion_test)
+  {
+    qpb_overlap_kl_pfrac(y, x);
+    qpb_spinor_xmy(r, b, y);
+    qpb_spinor_xdotx(&res_norm, r);
+    qpb_spinor_xdotx(&b_norm, b);
+    print(" \tFinal relative residual = %e\n", res_norm / b_norm);
+  }
+
   return iters;
 }
