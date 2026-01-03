@@ -244,10 +244,10 @@ qpb_overlap_kl_pfrac(qpb_spinor_field y, qpb_spinor_field x)
 
 
 void
-qpb_gamma5_overlap_kl_pfrac(qpb_spinor_field y, qpb_spinor_field x)
+qpb_overlap_kl_pfrac_gamma5(qpb_spinor_field y, qpb_spinor_field x)
 {
+  qpb_spinor_gamma5(x, x);
   qpb_overlap_kl_pfrac(y, x);
-  qpb_spinor_gamma5(y, y);
 
   return;
 }
@@ -261,10 +261,9 @@ qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b, \
   qpb_spinor_field r = ov_temp_vecs[3];
   qpb_spinor_field y = ov_temp_vecs[4];
   qpb_spinor_field w = ov_temp_vecs[5];
-  qpb_spinor_field bprime = ov_temp_vecs[6];
 
   int n_reeval = 100;
-  int n_echo = 100;
+  int n_echo = 5;
   int iters = 0;
   int final_inversion_test = 1;
   
@@ -272,20 +271,18 @@ qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b, \
   qpb_complex_double alpha = {1, 0}, omega = {1, 0};
   qpb_complex_double beta, gamma;
 
-  qpb_spinor_gamma5(w, b);
-  qpb_gamma5_overlap_kl_pfrac(bprime, w);
-
-  qpb_spinor_xdotx(&b_norm, bprime);
+  qpb_spinor_xdotx(&b_norm, b);
+  print(" Starting CG with b_norm = %e\n", b_norm);
 
   qpb_spinor_field_set_zero(x);
 
-  /* r0 = bprime - A(x) */
-  // qpb_gamma5_overlap_kl_pfrac(w, x);
-  // qpb_gamma5_overlap_kl_pfrac(p, w);
-  // qpb_spinor_xmy(r, bprime, p);
+  /* r0 = b - A(x) */
+  // qpb_overlap_kl_pfrac_gamma5(w, x);
+  // qpb_overlap_kl_pfrac_gamma5(p, w);
+  // qpb_spinor_xmy(r, b, p);
   
-  /* Or r0 = bprime for short since x0 = 0 */
-  qpb_spinor_xeqy(r, bprime);
+  /* Or r0 = b for short since x0 = 0 */
+  qpb_spinor_xeqy(r, b);
 
   qpb_spinor_xdotx(&gamma.re, r);
   gamma.im = 0;
@@ -304,8 +301,8 @@ qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b, \
     }
 
     /* y = A(p) */
-    qpb_gamma5_overlap_kl_pfrac(w, p);
-    qpb_gamma5_overlap_kl_pfrac(y, w);
+    qpb_overlap_kl_pfrac_gamma5(w, p);
+    qpb_overlap_kl_pfrac_gamma5(y, w);
 
     /* omega = dot(p, A(p)) */
     qpb_spinor_xdoty(&omega, p, y);
@@ -316,11 +313,11 @@ qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b, \
     /* x <- x + alpha*p */
     qpb_spinor_axpy(x, alpha, p, x);
 
-    if(iters % n_reeval == 0) 
+    if(iters % n_reeval == 0)
     {
-      qpb_gamma5_overlap_kl_pfrac(w, x);
-      qpb_gamma5_overlap_kl_pfrac(y, w);
-      qpb_spinor_xmy(r, bprime, y);
+      qpb_overlap_kl_pfrac_gamma5(w, x);
+      qpb_overlap_kl_pfrac_gamma5(y, w);
+      qpb_spinor_xmy(r, b, y);
 	  }
     else
 	  {
@@ -340,11 +337,14 @@ qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b, \
     gamma.im = 0.;
   }
 
+  qpb_overlap_kl_pfrac_gamma5(w, x);
+  qpb_spinor_gamma5(x, w);
+
   t = qpb_stop_watch(t);
 
-  qpb_gamma5_overlap_kl_pfrac(w, x);
-  qpb_gamma5_overlap_kl_pfrac(y, w);
-  qpb_spinor_xmy(r, bprime, y);
+  qpb_overlap_kl_pfrac_gamma5(w, x);
+  qpb_overlap_kl_pfrac_gamma5(y, w);
+  qpb_spinor_xmy(r, b, y);
   qpb_spinor_xdotx(&res_norm, r);
 
   if(iters==CG_max_iter)
