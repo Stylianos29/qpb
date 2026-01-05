@@ -299,9 +299,9 @@ qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b, \
   qpb_complex_double beta, gamma;
 
   // Rescale b: b = (rho - overlap_mass/2)^(-1) * b
-  qpb_spinor_ax(b, inverse_rho_minus, b);
+  qpb_spinor_ax(bprime, inverse_rho_minus, b);
 
-  qpb_spinor_gamma5(w, b);
+  qpb_spinor_gamma5(w, bprime);
   qpb_gamma5_rescaled_overlap_kl_pfrac(bprime, w);
 
   qpb_spinor_xdotx(&b_norm, bprime);
