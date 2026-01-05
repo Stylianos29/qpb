@@ -135,10 +135,11 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover, \
       // print("c[%d] = %.25f\n", c[m], m);
     }
 
-    left_numerator = c[0];
-    left_denominator = c[1];
-    right_numerator = c[3];
-    right_denominator = c[2];
+    left_numerator = c[2];
+    left_denominator = c[3];
+    right_numerator = c[1];
+    right_denominator = c[0];
+    print(" Combination ID: '3421'\n");
 
     qpb_mscongrad_init(KL_diagonal_order);
 
@@ -212,11 +213,21 @@ qpb_gamma5_sign_function_of_X_pfrac(qpb_spinor_field y, qpb_spinor_field x)
       with X(x) = γ5(D(x) - ρ*x) . */
 
   qpb_spinor_field sum = ov_temp_vecs[0];
+  
+  /* Calculate the numerical terms of the partial fraction expansion */
+  qpb_double *numerators;
+  qpb_double *shifts;
+  shifts = qpb_alloc(sizeof(qpb_double)*KL_diagonal_order);
+  numerators = qpb_alloc(sizeof(qpb_double)*KL_diagonal_order);
 
-  qpb_double numerators[2] = {(c[1] - c[0])*(c[3] - c[0])/(c[2] - c[0]), \
-                                    (c[1] - c[2])*(c[3] - c[2])/(c[0] - c[2])};
-  qpb_double shifts_array[2] = {c[0], c[1]};
-  qpb_double *shifts = shifts_array;
+  for(int i=0; i<KL_diagonal_order; i++)
+  {
+    qpb_double trig_arg = M_PI*(i+0.5)*constant_term;
+    shifts[i] = pow(tan(trig_arg), 2);
+    numerators[i] = 2*constant_term/powl(cos(trig_arg), 2);
+    // print("numerator[%d] = %.25f, shift[%d] = %.25f\n", i, numerators[i], \
+                                                            i, shifts[i]);
+  }
 
   qpb_spinor_field yMS[KL_diagonal_order];
   for(int sigma=0; sigma<KL_diagonal_order; sigma++)
@@ -234,7 +245,7 @@ qpb_gamma5_sign_function_of_X_pfrac(qpb_spinor_field y, qpb_spinor_field x)
   qpb_spinor_ax(sum, (qpb_complex) {constant_term, 0.}, x);
   // And then add the rest of the partial fraction terms
   for(int sigma=0; sigma<KL_diagonal_order; sigma++)
-    qpb_spinor_axpy(sum, (qpb_complex) {numerators[sigma]*constant_term, 0.}, \
+    qpb_spinor_axpy(sum, (qpb_complex) {numerators[sigma], 0.}, \
                                                               yMS[sigma], sum);
 
   D_op(y, sum);
