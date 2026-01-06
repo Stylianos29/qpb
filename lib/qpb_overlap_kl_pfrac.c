@@ -136,10 +136,10 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover, \
     }
 
     left_numerator = c[2];
-    left_denominator = c[3];
-    right_numerator = c[1];
+    left_denominator = c[1];
+    right_numerator = c[3];
     right_denominator = c[0];
-    print(" Combination ID: '3421'\n");
+    print(" Combination ID: '3241'\n");
 
     qpb_mscongrad_init(KL_diagonal_order);
 
