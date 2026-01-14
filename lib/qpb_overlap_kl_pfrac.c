@@ -16,7 +16,7 @@
 #include <math.h>
 
 
-#define OVERLAP_NUMB_TEMP_VECS 9
+#define OVERLAP_NUMB_TEMP_VECS 11
 #define MSCG_NUMB_TEMP_VECS 20
 
 
@@ -119,7 +119,7 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover, \
     }
     ov_params.initialized = QPB_OVERLAP_INITIALIZED;
 
-    KL_diagonal_order = kl_iters;
+    KL_diagonal_order = 2;
     MS_solver_precision = ms_epsilon;
     MS_maximum_solver_iterations = ms_max_iter;
 
@@ -135,11 +135,11 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover, \
       // print("c[%d] = %.25f\n", c[m], m);
     }
 
-    left_numerator = c[2];
-    left_denominator = c[1];
-    right_numerator = c[3];
-    right_denominator = c[0];
-    print(" Combination ID: '3241'\n");
+    left_numerator = c[0];
+    left_denominator = c[3];
+    right_numerator = c[1];
+    right_denominator = c[2];
+    print(" Combination ID: '1423'\n");
 
     qpb_mscongrad_init(KL_diagonal_order);
 
@@ -389,25 +389,31 @@ qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b, \
 {
   qpb_spinor_field p = ov_temp_vecs[4];
   qpb_spinor_field r = ov_temp_vecs[5];
-  qpb_spinor_field y = ov_temp_vecs[6];
-  qpb_spinor_field w = ov_temp_vecs[7];
-  qpb_spinor_field bprime = ov_temp_vecs[8];
+  qpb_spinor_field z = ov_temp_vecs[6];
+  qpb_spinor_field y = ov_temp_vecs[7];
+  qpb_spinor_field w = ov_temp_vecs[8];
+  qpb_spinor_field btransformed = ov_temp_vecs[9];
+  qpb_spinor_field bprime = ov_temp_vecs[10];
 
   int n_reeval = 100;
-  int n_echo = 100;
+  int n_echo = 1;
   int iters = 0;
-  int final_inversion_test = 1;
   
-  qpb_double res_norm, b_norm;
+  qpb_double res_norm, true_res_norm, trans_res_norm, b_norm, btransformed_norm;
   qpb_complex_double alpha = {1, 0}, omega = {1, 0};
   qpb_complex_double beta, gamma;
-  
-  qpb_spinor_gamma5(bprime, b);
-  qpb_first_degree_rational(w, bprime, left_numerator, left_denominator);
 
-  qpb_conjugate_overlap_kl_pfrac_multiply_down(bprime, w);
+  qpb_spinor_xdotx(&b_norm, b);
+  true_res_norm = b_norm;
 
-  qpb_spinor_xdotx(&b_norm, bprime);
+  qpb_spinor_gamma5(y, b);
+  qpb_first_degree_rational(btransformed, y, left_numerator, left_denominator);
+
+  qpb_conjugate_overlap_kl_pfrac_multiply_down(bprime, btransformed);
+
+  qpb_spinor_xdotx(&btransformed_norm, btransformed);
+  trans_res_norm = btransformed_norm;
+  print("BTRANSFORMED_NORM = %e\n", btransformed_norm);
 
   qpb_spinor_field_set_zero(x);
 
@@ -415,32 +421,41 @@ qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b, \
   // qpb_overlap_kl_pfrac_multiply_down(w, x);
   // qpb_conjugate_overlap_kl_pfrac_multiply_down(p, w);
   // qpb_spinor_xmy(r, bprime, p);
-  
-  /* Or r0 = bprime for short since x0 = 0 */
-  qpb_spinor_xeqy(r, bprime);
 
-  qpb_spinor_xdotx(&gamma.re, r);
+  /* Or z0 = bprime for short since x0 = 0 */
+  qpb_spinor_xeqy(r, btransformed);
+  qpb_spinor_xeqy(z, bprime);
+
+  qpb_spinor_xdotx(&gamma.re, z);
   gamma.im = 0;
   res_norm = gamma.re;
-  /* p = r0 */
-  qpb_spinor_xeqy(p, r);
+  /* p = z0 */
+  qpb_spinor_xeqy(p, z);
 
   qpb_double t = qpb_stop_watch(0);
   for(iters=1; iters<CG_max_iter; iters++)
   {
     // CG stopping criterion
-    if(res_norm / b_norm <= CG_epsilon)
+    if (trans_res_norm <= CG_epsilon/100.)
     {
-      // print("CG stopped at relative residual: %e\n", res_norm / b_norm);
-      break;
+      qpb_overlap_kl_pfrac(y, x);
+      // qpb_first_degree_rational(y, r, left_denominator, left_numerator);
+      // qpb_spinor_gamma5(w, y);
+      qpb_spinor_xmy(w, b, y);
+      qpb_spinor_xdotx(&true_res_norm, w);
+
+      if((iters % n_echo == 0))
+        print(" \t iters = %8d, res = %e\n", iters, true_res_norm / b_norm);
+
+      if(true_res_norm / b_norm <= CG_epsilon)
+        break;
     }
 
-    /* y = A(p) */
+    /* y = w(p) */
     qpb_overlap_kl_pfrac_multiply_down(w, p);
-    qpb_conjugate_overlap_kl_pfrac_multiply_down(y, w);
 
-    /* omega = dot(p, A(p)) */
-    qpb_spinor_xdoty(&omega, p, y);
+    /* omega = dot(w(p), w(p)) */
+    qpb_spinor_xdotx(&omega.re, w);
 
     /* alpha = dot(r, r)/omega */
     alpha = CDEV(gamma, omega);
@@ -448,58 +463,43 @@ qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b, \
     /* x <- x + alpha*p */
     qpb_spinor_axpy(x, alpha, p, x);
 
-    if(iters % n_reeval == 0) 
+    if(iters % n_reeval == 0)
     {
-      qpb_overlap_kl_pfrac_multiply_down(w, x);
-      qpb_conjugate_overlap_kl_pfrac_multiply_down(y, w);
-      qpb_spinor_xmy(r, bprime, y);
-	  }
+      qpb_overlap_kl_pfrac_multiply_down(y, x);
+      qpb_spinor_xmy(r, btransformed, y);
+    }
     else
-	  {
+    {
       alpha.re = -CDEVR(gamma, omega);
       alpha.im = -CDEVI(gamma, omega);
-      qpb_spinor_axpy(r, alpha, y, r);
-	  }
-    qpb_spinor_xdotx(&res_norm, r);
-
-    if((iters % n_echo == 0))
-	    print(" \t iters = %8d, res = %e\n", iters, res_norm / b_norm);
-
+      qpb_spinor_axpy(r, alpha, w, r);
+    }
+    qpb_conjugate_overlap_kl_pfrac_multiply_down(z, r);
+    qpb_spinor_xdotx(&res_norm, z);
+    
     beta.re = res_norm / gamma.re;
     beta.im = 0.;
-    qpb_spinor_axpy(p, beta, p, r);
+    qpb_spinor_axpy(p, beta, p, z);
     gamma.re = res_norm;
     gamma.im = 0.;
+
+    qpb_spinor_xdotx(&trans_res_norm, r);
   }
 
   t = qpb_stop_watch(t);
-
-  qpb_overlap_kl_pfrac_multiply_down(w, x);
-  qpb_conjugate_overlap_kl_pfrac_multiply_down(y, w);
-  qpb_spinor_xmy(r, bprime, y);
-  qpb_spinor_xdotx(&res_norm, r);
 
   if(iters==CG_max_iter)
   {
     error(" !\n");
     error(" CG *did not* converge, after %d iterations\n", iters);
-    error(" residual = %e, relative = %e, t = %g sec\n", res_norm, \
-                                                      res_norm / b_norm, t);
+    error(" residual = %e, relative = %e, t = %g sec\n", true_res_norm, \
+                                                      true_res_norm / b_norm, t);
     error(" !\n");
     return -1;
   }
 
   print(" \tAfter %d iters, CG converged, res = %e, relative = %e, "
-                        "t = %g sec\n", iters, res_norm, res_norm / b_norm, t);
+                        "t = %g sec\n", iters, true_res_norm, true_res_norm / b_norm, t);
   
-  if (final_inversion_test)
-  {
-    qpb_overlap_kl_pfrac(y, x);
-    qpb_spinor_xmy(r, b, y);
-    qpb_spinor_xdotx(&res_norm, r);
-    qpb_spinor_xdotx(&b_norm, b);
-    print(" \tFinal relative residual = %e\n", res_norm / b_norm);
-  }
-
   return iters;
 }
