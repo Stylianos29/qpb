@@ -565,13 +565,15 @@ qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b, \
   qpb_spinor_field r = ov_temp_vecs[19];
   qpb_spinor_field y = ov_temp_vecs[20];
   qpb_spinor_field w = ov_temp_vecs[21];
-  qpb_spinor_field bprime = ov_temp_vecs[22];
+  qpb_spinor_field z = ov_temp_vecs[22];
+  qpb_spinor_field bprime = ov_temp_vecs[23];
+  qpb_spinor_field btransformed = ov_temp_vecs[24];
 
   int n_reeval = 100;
   int n_echo = 1;
   int iters = 0;
   
-  qpb_double res_norm, true_res_norm, b_norm;
+  qpb_double res_norm, true_res_norm, trans_res_norm, b_norm, btransformed_norm;
   qpb_complex_double alpha = {1, 0}, omega = {1, 0};
   qpb_complex_double beta, gamma;
   
@@ -583,15 +585,17 @@ qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b, \
   
   // Case by case 
   if (left_numerator_idx == 0 && left_denominator_idx == 0)
-    qpb_spinor_xeqy(y, w);
+    qpb_spinor_xeqy(btransformed, w);
   else if (left_numerator_idx == 0 && left_denominator_idx == 2)
-    qpb_rational_function(y, w, 0, 2);
+    qpb_rational_function(btransformed, w, 0, 2);
   else if (left_numerator_idx == 1 && left_denominator_idx == 2)
-    qpb_rational_function(y, w, 1, 2);
+    qpb_rational_function(btransformed, w, 1, 2);
   else
-    shifted_X_squared_op(y, w, c[0]);
+    shifted_X_squared_op(btransformed, w, c[0]);
 
-  qpb_conjugate_overlap_kl_pfrac_multiply_down(bprime, y);
+  qpb_conjugate_overlap_kl_pfrac_multiply_down(bprime, btransformed);
+  
+  qpb_spinor_xdotx(&btransformed_norm, btransformed);
 
   qpb_spinor_field_set_zero(x);
 
@@ -600,14 +604,15 @@ qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b, \
   // qpb_conjugate_overlap_kl_pfrac_multiply_down(p, w);
   // qpb_spinor_xmy(r, bprime, p);
   
-  /* Or r0 = bprime for short since x0 = 0 */
-  qpb_spinor_xeqy(r, bprime);
+  /* Or z0 = bprime for short since x0 = 0 */
+  qpb_spinor_xeqy(r, btransformed);
+  qpb_spinor_xeqy(z, bprime);
 
-  qpb_spinor_xdotx(&gamma.re, r);
+  qpb_spinor_xdotx(&gamma.re, z);
   gamma.im = 0;
   res_norm = gamma.re;
-  /* p = r0 */
-  qpb_spinor_xeqy(p, r);
+  /* p = z0 */
+  qpb_spinor_xeqy(p, z);
 
   qpb_double t = qpb_stop_watch(0);
   for(iters=1; iters<CG_max_iter; iters++)
@@ -616,12 +621,11 @@ qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b, \
     if(true_res_norm / b_norm <= CG_epsilon)
       break;
 
-    /* y = A(p) */
+    /* y = w(p) */
     qpb_overlap_kl_pfrac_multiply_down(w, p);
-    qpb_conjugate_overlap_kl_pfrac_multiply_down(y, w);
 
-    /* omega = dot(p, A(p)) */
-    qpb_spinor_xdoty(&omega, p, y);
+    /* omega = dot(w(p), w(p)) */
+    qpb_spinor_xdotx(&omega.re, w);
 
     /* alpha = dot(r, r)/omega */
     alpha = CDEV(gamma, omega);
@@ -629,23 +633,23 @@ qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b, \
     /* x <- x + alpha*p */
     qpb_spinor_axpy(x, alpha, p, x);
 
-    if(iters % n_reeval == 0) 
+    if(iters % n_reeval == 0)
     {
-      qpb_overlap_kl_pfrac_multiply_down(w, x);
-      qpb_conjugate_overlap_kl_pfrac_multiply_down(y, w);
-      qpb_spinor_xmy(r, bprime, y);
+      qpb_overlap_kl_pfrac_multiply_down(y, x);
+      qpb_spinor_xmy(r, btransformed, y);
 	  }
     else
 	  {
       alpha.re = -CDEVR(gamma, omega);
       alpha.im = -CDEVI(gamma, omega);
-      qpb_spinor_axpy(r, alpha, y, r);
+      qpb_spinor_axpy(r, alpha, w, r);
 	  }
-    qpb_spinor_xdotx(&res_norm, r);
+    qpb_conjugate_overlap_kl_pfrac_multiply_down(z, r);
+    qpb_spinor_xdotx(&res_norm, z);
     
     beta.re = res_norm / gamma.re;
     beta.im = 0.;
-    qpb_spinor_axpy(p, beta, p, r);
+    qpb_spinor_axpy(p, beta, p, z);
     gamma.re = res_norm;
     gamma.im = 0.;
     
@@ -654,7 +658,8 @@ qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b, \
     qpb_spinor_xdotx(&true_res_norm, w);
 
     if((iters % n_echo == 0))
-	    print(" \t iters = %8d, res = %e\n", iters, true_res_norm / b_norm);
+      qpb_spinor_xdotx(&trans_res_norm, r);
+    print(" \t iters = %8d, res = %e\n", iters, true_res_norm / b_norm);
   }
 
   t = qpb_stop_watch(t);
