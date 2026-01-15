@@ -344,7 +344,7 @@ qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b, \
   }
   t = qpb_stop_watch(t);
 
-  qpb_overlap_kl_pfrac(w, x);
+  qpb_overlap_kl_pfrac(y, x);
   qpb_spinor_xmy(r, b, y);
   qpb_spinor_xdotx(&true_res_norm, r);
 
