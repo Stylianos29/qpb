@@ -16,7 +16,7 @@
 #include <math.h>
 
 
-#define OVERLAP_NUMB_TEMP_VECS 11
+#define OVERLAP_NUMB_TEMP_VECS 14
 #define MSCG_NUMB_TEMP_VECS 20
 
 
@@ -267,7 +267,7 @@ qpb_left_transformation(qpb_spinor_field y, qpb_spinor_field x)
 {
   /* */
 
-  qpb_spinor_field z = ov_temp_vecs[0];
+  qpb_spinor_field z = ov_temp_vecs[2];
 
   qpb_spinor_field yMS[KL_diagonal_order];
 
@@ -303,8 +303,8 @@ qpb_overlap_kl_pfrac_multiply_down(qpb_spinor_field y, qpb_spinor_field x)
     with ρ+ = ρ + overlap_mass/2 and ρ- = ρ - overlap_mass/2.  
   */
 
-  qpb_spinor_field z = ov_temp_vecs[0];
-  qpb_spinor_field w = ov_temp_vecs[1];
+  qpb_spinor_field z = ov_temp_vecs[3];
+  qpb_spinor_field w = ov_temp_vecs[4];
   
   qpb_double *shifts = qpb_alloc(sizeof(qpb_double)*KL_diagonal_order);
   qpb_spinor_field yMS[KL_diagonal_order];
@@ -344,8 +344,8 @@ qpb_conjugate_overlap_kl_pfrac_multiply_down(qpb_spinor_field y, qpb_spinor_fiel
     with ρ+ = ρ + overlap_mass/2 and ρ- = ρ - overlap_mass/2.  
   */
 
-  qpb_spinor_field z = ov_temp_vecs[0];
-  qpb_spinor_field w = ov_temp_vecs[1];
+  qpb_spinor_field z = ov_temp_vecs[5];
+  qpb_spinor_field w = ov_temp_vecs[6];
   
   qpb_double numerator;
   qpb_double *shifts = qpb_alloc(sizeof(qpb_double)*2*KL_diagonal_order);
@@ -385,13 +385,13 @@ int
 qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b, \
                                         qpb_double CG_epsilon, int CG_max_iter)
 {
-  qpb_spinor_field p = ov_temp_vecs[4];
-  qpb_spinor_field r = ov_temp_vecs[5];
-  qpb_spinor_field z = ov_temp_vecs[6];
-  qpb_spinor_field y = ov_temp_vecs[7];
-  qpb_spinor_field w = ov_temp_vecs[8];
-  qpb_spinor_field btransformed = ov_temp_vecs[9];
-  qpb_spinor_field bprime = ov_temp_vecs[10];
+  qpb_spinor_field p = ov_temp_vecs[7];
+  qpb_spinor_field r = ov_temp_vecs[8];
+  qpb_spinor_field z = ov_temp_vecs[9];
+  qpb_spinor_field y = ov_temp_vecs[10];
+  qpb_spinor_field w = ov_temp_vecs[11];
+  qpb_spinor_field btransformed = ov_temp_vecs[12];
+  qpb_spinor_field bprime = ov_temp_vecs[13];
 
   int n_reeval = 100;
   int n_echo = 1;
