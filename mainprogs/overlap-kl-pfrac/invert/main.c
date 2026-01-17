@@ -960,7 +960,7 @@ main(int argc, char *argv[])
   qpb_double t = qpb_stop_watch(0);
 
   qpb_overlap_kl_pfrac_init(solver_arg_links, clover_term, kl_class, kl_iters, \
-                    rho, c_sw, mass, scaling_factor, ms_epsilon, ms_max_iters, 3);
+                    rho, c_sw, mass, scaling_factor, ms_epsilon, ms_max_iters, 1);
 n_spinors=1;
   for(int i=0; i<n_spinors; i++)
   {
