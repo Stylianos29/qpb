@@ -37,8 +37,6 @@ static qpb_double rho_minus;
 static qpb_double constant_term;
 static qpb_double *c;
 
-static int left_numerator_idx;
-static int right_denominator_idx;
 
 void
 qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover, \
@@ -132,20 +130,9 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover, \
       // print("c[%d] = %.25f\n", c[m], m);
     }
 
-    left_numerator_idx = left_idx;
+    print(" Combination ID: 'L13/24'\n");
 
-    if (left_numerator_idx == 1)
-      {
-        print(" Combination ID: 'L1/24'\n");
-        right_denominator_idx = 3;
-      }
-    else if (left_numerator_idx == 3)
-      {
-        print(" Combination ID: 'L3/24'\n");
-        right_denominator_idx = 1;
-      }
-
-    qpb_mscongrad_init(3);
+    qpb_mscongrad_init(2);
 
   }
 	
@@ -168,7 +155,7 @@ qpb_overlap_kl_pfrac_finalize()
   
   ov_params.initialized = 0;
   
-  qpb_mscongrad_finalize(3);
+  qpb_mscongrad_finalize(2);
   
   return;
 }
@@ -205,22 +192,6 @@ X_op(qpb_spinor_field y, qpb_spinor_field x)
   dslash_args[3] = &ov_params.c_sw;
 
   ov_params.g5_dslash_op(y, x, dslash_args);
-
-  return;
-}
-
-
-void
-qpb_right_denominator(qpb_spinor_field y, qpb_spinor_field x)
-{
-  /* Implements: (X^2 + c[right_denominator_idx-1]) */
-
-  qpb_spinor_field z = ov_temp_vecs[0];
-
-  X_op(y, x);
-  X_op(z, y);
-
-  qpb_spinor_axpy(y, (qpb_complex) {c[right_denominator_idx-1], 0.}, x, z);
 
   return;
 }
@@ -292,7 +263,7 @@ qpb_overlap_kl_pfrac(qpb_spinor_field y, qpb_spinor_field x)
 
 
 void
-qpb_left_transformation(qpb_spinor_field y, qpb_spinor_field x)
+qpb_rational_function(qpb_spinor_field y, qpb_spinor_field x)
 {
   /* Implements: (X^2 + c[2])/((X^2 + c[1])(X^2 + c[3]))(x) */
 
@@ -300,11 +271,10 @@ qpb_left_transformation(qpb_spinor_field y, qpb_spinor_field x)
 
   qpb_spinor_field yMS[2];
 
-  qpb_double numerator, invert_norm;
+  qpb_double invert_norm;
+  qpb_double *numerators = qpb_alloc(sizeof(qpb_double)*2);
   qpb_double *shifts = qpb_alloc(sizeof(qpb_double)*2);
 
-
-  qpb_spinor_gamma5(z, x);
 
   for(int sigma=0; sigma<2; sigma++)
   {
@@ -312,13 +282,16 @@ qpb_left_transformation(qpb_spinor_field y, qpb_spinor_field x)
     qpb_spinor_field_set_zero(yMS[sigma]);
     shifts[sigma] = c[2*sigma+1];
   }
-  qpb_mscongrad(yMS, z, ov_params.gauge_ptr, ov_params.clover, kernel_kappa, \
+  numerators[0] = -0.06452035960037018;
+  numerators[1] = -7.935479640399628;
+
+  qpb_mscongrad(yMS, x, ov_params.gauge_ptr, ov_params.clover, kernel_kappa, \
     2, shifts, ov_params.c_sw, MS_solver_precision, \
     MS_maximum_solver_iterations);
 
-  numerator = (c[left_numerator_idx-1] - c[1])/(c[3] - c[1]);
-  qpb_spinor_axpby(y, (qpb_complex) {numerator, 0.}, yMS[0], \
-                                  (qpb_complex) {1-numerator, 0.}, yMS[1]);
+  qpb_spinor_axpby(z, (qpb_complex) {numerators[0], 0.}, yMS[0], \
+                                    (qpb_complex) {numerators[1], 0.}, yMS[1]);
+  qpb_spinor_xpy(y, z, x);
 
   return;
 }
@@ -336,27 +309,14 @@ qpb_overlap_kl_pfrac_multiply_down(qpb_spinor_field y, qpb_spinor_field x)
 
   qpb_spinor_field z = ov_temp_vecs[4];
   qpb_spinor_field w = ov_temp_vecs[5];  qpb_double invert_norm;
-  
-  qpb_double *shifts = qpb_alloc(sizeof(qpb_double));
-  qpb_spinor_field yMS[1];
 
+  
   // Left fraction
-  qpb_left_transformation(z, x);
+  qpb_spinor_gamma5(y, x);
+  qpb_rational_function(z, y);
 
   // Right fraction
-  yMS[0] = mscg_temp_vecs[0];
-  qpb_spinor_field_set_zero(yMS[0]);
-  shifts[0] = c[right_denominator_idx-1];
-  qpb_mscongrad(yMS, x, ov_params.gauge_ptr, ov_params.clover, kernel_kappa, \
-    1, shifts, ov_params.c_sw, MS_solver_precision, \
-    MS_maximum_solver_iterations);
-  qpb_spinor_xeqy(y, yMS[0]);
-  // Test inversion 
-  qpb_right_denominator(w, y);
-  qpb_spinor_xdotx(&invert_norm, w);
-  print("Right expression inversion test %e\n", invert_norm);
-  
-  X_op(w, y);
+  X_op(w, x);
 
   qpb_spinor_axpby(y, (qpb_complex) {rho_plus, 0.}, z, \
                               (qpb_complex) {rho_minus*constant_term, 0.}, w);
@@ -375,51 +335,15 @@ qpb_conjugate_overlap_kl_pfrac_multiply_down(qpb_spinor_field y, qpb_spinor_fiel
     with ρ+ = ρ + overlap_mass/2 and ρ- = ρ - overlap_mass/2.  
   */
 
-  qpb_spinor_field z = ov_temp_vecs[6];
-  qpb_spinor_field w = ov_temp_vecs[7];
+  qpb_spinor_field z = ov_temp_vecs[4];
+  qpb_spinor_field w = ov_temp_vecs[5];  qpb_double invert_norm;
   
-  qpb_double numerator;
-  qpb_double *shifts = qpb_alloc(3*sizeof(qpb_double));
-  qpb_spinor_field yMS[3];
-
-  for(int sigma=0; sigma<3; sigma++)
-  {
-    yMS[sigma] = mscg_temp_vecs[sigma];
-    qpb_spinor_field_set_zero(yMS[sigma]);
-  }
-  if (left_numerator_idx == 1)
-  {
-    shifts[0]=c[1];
-    shifts[1]=c[2];
-    shifts[2]=c[3];
-  }
-  else if (left_numerator_idx == 3)
-  {
-    shifts[0]=c[0];
-    shifts[1]=c[1];
-    shifts[2]=c[3];
-  }
-
-  qpb_mscongrad(yMS, x, ov_params.gauge_ptr, ov_params.clover, kernel_kappa, \
-    3, shifts, ov_params.c_sw, MS_solver_precision, \
-    MS_maximum_solver_iterations);
-
   // Left fraction
-  numerator = (c[left_numerator_idx-1] - c[1])/(c[3] - c[1]);
-  if (left_numerator_idx == 1)
-    qpb_spinor_axpby(y, (qpb_complex) {numerator, 0.}, yMS[0], \
-                                        (qpb_complex) {1-numerator, 0.}, yMS[2]);
-  else if (left_numerator_idx == 3)
-    qpb_spinor_axpby(y, (qpb_complex) {numerator, 0.}, yMS[1], \
-                                        (qpb_complex) {1-numerator, 0.}, yMS[2]);
+  qpb_rational_function(y, x);
   qpb_spinor_gamma5(z, y);
 
   // Right fraction
-  if (left_numerator_idx == 1)
-    qpb_spinor_xeqy(y, yMS[1]);
-  else if (left_numerator_idx == 3)
-    qpb_spinor_xeqy(y, yMS[0]);
-  X_op(w, y);
+  X_op(w, x);
 
   qpb_spinor_axpby(y, (qpb_complex) {rho_plus, 0.}, z, \
                               (qpb_complex) {rho_minus*constant_term, 0.}, w);
@@ -453,7 +377,8 @@ qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b, \
   true_res_norm = b_norm;
 
   // bR = R b
-  qpb_left_transformation(btransformed, b);
+  qpb_spinor_gamma5(y, b);
+  qpb_rational_function(btransformed, y);
   qpb_spinor_xdotx(&btransformed_norm, btransformed);
   trans_res_norm = btransformed_norm;
   print("BTRANSFORMED_NORM = %e\n", btransformed_norm);
