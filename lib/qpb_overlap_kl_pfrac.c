@@ -127,7 +127,7 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover, \
     {
       qpb_double trig_arg = (m+1)*constant_term*0.5*M_PI;
       c[m] = pow(tan(trig_arg), 2);
-      print("c[%d] = %.25f\n", c[m], m);
+      // print("c[%d] = %.25f\n", c[m], m);
     }
 
     print(" Combination ID: 'L0/24'\n");
@@ -356,8 +356,9 @@ qpb_conjugate_overlap_kl_pfrac_multiply_down(qpb_spinor_field y, qpb_spinor_fiel
     yMS[sigma] = mscg_temp_vecs[sigma];
     qpb_spinor_field_set_zero(yMS[sigma]);
     shifts[sigma] = c[sigma];
+    // print("shifts[%d] = %.25f\n", sigma, shifts[sigma]);
   }
-  qpb_mscongrad(yMS, y, ov_params.gauge_ptr, ov_params.clover, kernel_kappa, \
+  qpb_mscongrad(yMS, x, ov_params.gauge_ptr, ov_params.clover, kernel_kappa, \
     2*KL_diagonal_order, shifts, ov_params.c_sw, MS_solver_precision, \
     MS_maximum_solver_iterations);
 
@@ -366,7 +367,6 @@ qpb_conjugate_overlap_kl_pfrac_multiply_down(qpb_spinor_field y, qpb_spinor_fiel
   qpb_spinor_axpby(y, (qpb_complex) {numerator, 0.}, yMS[1], \
                                   (qpb_complex) {-numerator, 0.}, yMS[3]);
   qpb_spinor_gamma5(z, y);
-
 
   // Right fraction
   numerator = 1.0/(c[2] - c[0]);
