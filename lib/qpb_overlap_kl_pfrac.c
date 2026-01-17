@@ -479,15 +479,18 @@ qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b, \
   for(iters=1; iters<CG_max_iter; iters++)
   {
     // CG stopping criterion
-    // if (trans_res_norm <= CG_epsilon/10.)
-    // {
-      // qpb_overlap_kl_pfrac(y, x);
-      // qpb_spinor_xmy(w, b, y);
-      // qpb_spinor_xdotx(&true_res_norm, w);
+    if (trans_res_norm <= CG_epsilon)
+    {
+      qpb_overlap_kl_pfrac(y, x);
+      qpb_spinor_xmy(w, b, y);
+      qpb_spinor_xdotx(&true_res_norm, w);
+
+      if((iters % n_echo == 0))
+        print(" \t iters = %8d, res = %e\n", iters, true_res_norm / b_norm);
 
       if(true_res_norm / b_norm <= CG_epsilon)
         break;
-    // }
+    }
 
     /* y = w(p) */
     qpb_overlap_kl_pfrac_multiply_down(w, p);
@@ -523,12 +526,6 @@ qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b, \
 
     qpb_spinor_xdotx(&trans_res_norm, r);
 
-    qpb_overlap_kl_pfrac(y, x);
-    qpb_spinor_xmy(w, b, y);
-    qpb_spinor_xdotx(&true_res_norm, w);
-
-    if((iters % n_echo == 0))
-      print(" \t iters = %8d, res = %e\n", iters, true_res_norm / b_norm);
   }
   t = qpb_stop_watch(t);
 
