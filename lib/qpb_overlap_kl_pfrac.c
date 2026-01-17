@@ -16,7 +16,7 @@
 #include <math.h>
 
 
-#define OVERLAP_NUMB_TEMP_VECS 14
+#define OVERLAP_NUMB_TEMP_VECS 18
 #define MSCG_NUMB_TEMP_VECS 20
 
 
@@ -198,12 +198,56 @@ X_op(qpb_spinor_field y, qpb_spinor_field x)
 
 
 void
+qpb_left_denominator(qpb_spinor_field y, qpb_spinor_field x)
+{
+  /* Implements: (X^2 + c[1])(X^2 + c[3]) */
+
+  qpb_spinor_field product = ov_temp_vecs[0];
+  qpb_spinor_field z = ov_temp_vecs[1];
+
+  qpb_spinor_xeqy(product, x);
+  for(int i=0; i<2; i++)
+  {
+    X_op(y, product);
+    X_op(z, y);
+    
+    qpb_spinor_axpy(product, (qpb_complex) {c[3-2*i], 0.}, x, z);
+  }
+  qpb_spinor_xeqy(y, product);
+
+  return;
+}
+
+
+void
+qpb_right_denominator(qpb_spinor_field y, qpb_spinor_field x)
+{
+  /* Implements: (X^2 + c[0])(X^2 + c[2]) */
+
+  qpb_spinor_field product = ov_temp_vecs[2];
+  qpb_spinor_field z = ov_temp_vecs[3];
+
+  qpb_spinor_xeqy(product, x);
+  for(int i=0; i<2; i++)
+  {
+    X_op(y, product);
+    X_op(z, y);
+    
+    qpb_spinor_axpy(product, (qpb_complex) {c[2-2*i], 0.}, x, z);
+  }
+  qpb_spinor_xeqy(y, product);
+
+  return;
+}
+
+
+void
 qpb_gamma5_sign_function_of_X_pfrac(qpb_spinor_field y, qpb_spinor_field x)
 {
   /* Implements: γ5(sign(X(x))) = γ5(X(c_0 + Sum_{i=1}^{n} c_i/(X^2+σ_i) )),
       with X(x) = γ5(D(x) - ρ*x) . */
 
-  qpb_spinor_field sum = ov_temp_vecs[0];
+  qpb_spinor_field sum = ov_temp_vecs[4];
   
   /* Calculate the numerical terms of the partial fraction expansion */
   qpb_double *numerators;
@@ -252,7 +296,7 @@ qpb_overlap_kl_pfrac(qpb_spinor_field y, qpb_spinor_field x)
         Dov,m(x) = (rho+overlap_mass/2)*x+ (rho-overlap_mass/2)*g5(sign(X))
   */
   
-  qpb_spinor_field z = ov_temp_vecs[1];
+  qpb_spinor_field z = ov_temp_vecs[5];
 
   qpb_gamma5_sign_function_of_X_pfrac(z, x);
 
@@ -267,11 +311,11 @@ qpb_left_transformation(qpb_spinor_field y, qpb_spinor_field x)
 {
   /* */
 
-  qpb_spinor_field z = ov_temp_vecs[2];
+  qpb_spinor_field z = ov_temp_vecs[6];
 
   qpb_spinor_field yMS[KL_diagonal_order];
 
-  qpb_double numerator;
+  qpb_double numerator, invert_norm;
   qpb_double *shifts = qpb_alloc(sizeof(qpb_double)*KL_diagonal_order);
 
 
@@ -290,6 +334,13 @@ qpb_left_transformation(qpb_spinor_field y, qpb_spinor_field x)
   numerator = 1./(c[3] - c[1]);
   qpb_spinor_axpby(y, (qpb_complex) {numerator, 0.}, yMS[0], \
                                   (qpb_complex) {-numerator, 0.}, yMS[1]);
+
+  // Test inversion 
+  qpb_left_denominator(z, y);
+  qpb_spinor_xdotx(&invert_norm, z);
+  print("Left expression inversion test %e\n", invert_norm);
+
+  return;
 }
 
 
@@ -303,8 +354,10 @@ qpb_overlap_kl_pfrac_multiply_down(qpb_spinor_field y, qpb_spinor_field x)
     with ρ+ = ρ + overlap_mass/2 and ρ- = ρ - overlap_mass/2.  
   */
 
-  qpb_spinor_field z = ov_temp_vecs[3];
-  qpb_spinor_field w = ov_temp_vecs[4];
+  qpb_spinor_field z = ov_temp_vecs[7];
+  qpb_spinor_field w = ov_temp_vecs[8];
+
+  qpb_double invert_norm;
   
   qpb_double *shifts = qpb_alloc(sizeof(qpb_double)*KL_diagonal_order);
   qpb_spinor_field yMS[KL_diagonal_order];
@@ -325,6 +378,11 @@ qpb_overlap_kl_pfrac_multiply_down(qpb_spinor_field y, qpb_spinor_field x)
   qpb_double numerator = 1./(c[2] - c[0]);
   qpb_spinor_axpby(y, (qpb_complex) {numerator, 0.}, yMS[0], \
                                   (qpb_complex) {-numerator, 0.}, yMS[1]);
+  // Test inversion 
+  qpb_right_denominator(w, y);
+  qpb_spinor_xdotx(&invert_norm, w);
+  print("Right expression inversion test %e\n", invert_norm);
+  
   X_op(w, y);
 
   qpb_spinor_axpby(y, (qpb_complex) {rho_plus, 0.}, z, \
@@ -344,8 +402,8 @@ qpb_conjugate_overlap_kl_pfrac_multiply_down(qpb_spinor_field y, qpb_spinor_fiel
     with ρ+ = ρ + overlap_mass/2 and ρ- = ρ - overlap_mass/2.  
   */
 
-  qpb_spinor_field z = ov_temp_vecs[5];
-  qpb_spinor_field w = ov_temp_vecs[6];
+  qpb_spinor_field z = ov_temp_vecs[9];
+  qpb_spinor_field w = ov_temp_vecs[10];
   
   qpb_double numerator;
   qpb_double *shifts = qpb_alloc(sizeof(qpb_double)*2*KL_diagonal_order);
@@ -385,13 +443,13 @@ int
 qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b, \
                                         qpb_double CG_epsilon, int CG_max_iter)
 {
-  qpb_spinor_field p = ov_temp_vecs[7];
-  qpb_spinor_field r = ov_temp_vecs[8];
-  qpb_spinor_field z = ov_temp_vecs[9];
-  qpb_spinor_field y = ov_temp_vecs[10];
-  qpb_spinor_field w = ov_temp_vecs[11];
-  qpb_spinor_field btransformed = ov_temp_vecs[12];
-  qpb_spinor_field bprime = ov_temp_vecs[13];
+  qpb_spinor_field p = ov_temp_vecs[11];
+  qpb_spinor_field r = ov_temp_vecs[12];
+  qpb_spinor_field z = ov_temp_vecs[13];
+  qpb_spinor_field y = ov_temp_vecs[14];
+  qpb_spinor_field w = ov_temp_vecs[15];
+  qpb_spinor_field btransformed = ov_temp_vecs[16];
+  qpb_spinor_field bprime = ov_temp_vecs[17];
 
   int n_reeval = 100;
   int n_echo = 1;
