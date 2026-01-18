@@ -431,8 +431,7 @@ qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b, \
   for(iters=1; iters<CG_max_iter; iters++)
   {
     // CG stopping criterion
-    // if (trans_res_norm <= CG_epsilon/10)
-    if (iters > 1)
+    if (trans_res_norm/btransformed_norm <= CG_epsilon)
     {
       qpb_overlap_kl_pfrac(y, x);
       qpb_spinor_xmy(w, b, y);
