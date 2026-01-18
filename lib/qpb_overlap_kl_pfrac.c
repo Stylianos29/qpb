@@ -337,9 +337,6 @@ qpb_overlap_kl_pfrac_multiply_up(qpb_spinor_field y, qpb_spinor_field x)
   qpb_spinor_field z = ov_temp_vecs[4];
   qpb_spinor_field w = ov_temp_vecs[5];  qpb_double invert_norm;
   
-  qpb_double *shifts = qpb_alloc(sizeof(qpb_double));
-  qpb_spinor_field yMS[1];
-
   // Left fraction
   qpb_spinor_gamma5(y, x);
   shifted_X_op(z, y, c[left_factor_idx-1]);
@@ -366,9 +363,6 @@ qpb_conjugate_overlap_kl_pfrac_multiply_up(qpb_spinor_field y, qpb_spinor_field 
   qpb_spinor_field z = ov_temp_vecs[6];
   qpb_spinor_field w = ov_temp_vecs[7];  qpb_double invert_norm;
   
-  qpb_double *shifts = qpb_alloc(sizeof(qpb_double));
-  qpb_spinor_field yMS[1];
-
   // Left fraction
   shifted_X_op(y, x, c[left_factor_idx-1]);
   qpb_spinor_gamma5(z, y);
