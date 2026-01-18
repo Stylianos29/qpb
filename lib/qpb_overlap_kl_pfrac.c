@@ -236,7 +236,7 @@ qpb_gamma5_sign_function_of_X_pfrac(qpb_spinor_field y, qpb_spinor_field x)
   /* Implements: γ5(sign(X(x))) = γ5(X(c_0 + Sum_{i=1}^{n} c_i/(X^2+σ_i) )),
       with X(x) = γ5(D(x) - ρ*x) . */
 
-  qpb_spinor_field sum = ov_temp_vecs[1];
+  qpb_spinor_field sum = ov_temp_vecs[0];
   
   /* Calculate the numerical terms of the partial fraction expansion */
   qpb_double *numerators;
@@ -285,7 +285,7 @@ qpb_overlap_kl_pfrac(qpb_spinor_field y, qpb_spinor_field x)
         Dov,m(x) = (rho+overlap_mass/2)*x+ (rho-overlap_mass/2)*g5(sign(X))
   */
   
-  qpb_spinor_field z = ov_temp_vecs[2];
+  qpb_spinor_field z = ov_temp_vecs[1];
 
   qpb_gamma5_sign_function_of_X_pfrac(z, x);
 
@@ -340,8 +340,8 @@ qpb_overlap_kl_pfrac_multiply_up(qpb_spinor_field y, qpb_spinor_field x)
     with ρ+ = ρ + overlap_mass/2 and ρ- = ρ - overlap_mass/2.  
   */
 
-  qpb_spinor_field z = ov_temp_vecs[4];
-  qpb_spinor_field w = ov_temp_vecs[5];  qpb_double invert_norm;
+  qpb_spinor_field z = ov_temp_vecs[2];
+  qpb_spinor_field w = ov_temp_vecs[3];  qpb_double invert_norm;
   
   qpb_double *shifts = qpb_alloc(sizeof(qpb_double));
   qpb_spinor_field yMS[1];
@@ -369,8 +369,8 @@ qpb_conjugate_overlap_kl_pfrac_multiply_up(qpb_spinor_field y, qpb_spinor_field 
     with ρ+ = ρ + overlap_mass/2 and ρ- = ρ - overlap_mass/2.
   */
 
-  qpb_spinor_field z = ov_temp_vecs[6];
-  qpb_spinor_field w = ov_temp_vecs[7];
+  qpb_spinor_field z = ov_temp_vecs[4];
+  qpb_spinor_field w = ov_temp_vecs[5];
   qpb_double invert_norm;
   
   qpb_double *shifts;
@@ -431,13 +431,13 @@ int
 qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b, \
                                         qpb_double CG_epsilon, int CG_max_iter)
 {
-  qpb_spinor_field p = ov_temp_vecs[8];
-  qpb_spinor_field r = ov_temp_vecs[9];
-  qpb_spinor_field z = ov_temp_vecs[10];
-  qpb_spinor_field y = ov_temp_vecs[11];
-  qpb_spinor_field w = ov_temp_vecs[12];
-  qpb_spinor_field btransformed = ov_temp_vecs[13];
-  qpb_spinor_field bprime = ov_temp_vecs[14];
+  qpb_spinor_field p = ov_temp_vecs[6];
+  qpb_spinor_field r = ov_temp_vecs[7];
+  qpb_spinor_field z = ov_temp_vecs[8];
+  qpb_spinor_field y = ov_temp_vecs[9];
+  qpb_spinor_field w = ov_temp_vecs[10];
+  qpb_spinor_field btransformed = ov_temp_vecs[11];
+  qpb_spinor_field bprime = ov_temp_vecs[12];
 
   int n_reeval = 100;
   int n_echo = 1;
