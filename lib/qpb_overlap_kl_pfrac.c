@@ -217,6 +217,22 @@ X_op(qpb_spinor_field y, qpb_spinor_field x)
 }
 
 
+INLINE void
+shifted_X_op(qpb_spinor_field y, qpb_spinor_field x, qpb_double shift)
+{
+  /* Implements: (X^2 + shift) x */
+
+  qpb_spinor_field z = ov_temp_vecs[0];
+
+  X_op(y, x);
+  X_op(z, y);
+
+  qpb_spinor_axpy(y, (qpb_complex) {shift, 0.}, x, z);
+
+  return;
+}
+
+
 void
 left_inverse_factor(qpb_spinor_field y, qpb_spinor_field x, qpb_double shift)
 {
@@ -350,6 +366,11 @@ qpb_overlap_kl_pfrac_multiply_up(qpb_spinor_field y, qpb_spinor_field x)
   qpb_spinor_gamma5(y, x);
   left_inverse_factor(z, y, c[left_fraction_idx-1]);
 
+  // Test inversion
+  qpb_double inversion_check;
+  shifted_X_op(y, z, c[left_fraction_idx-1]);
+  qpb_spinor_xdotx(&inversion_check, y);
+
   // Right fraction
   qpb_reduced_product_form(y, x);
   X_op(w, y);
@@ -479,7 +500,8 @@ qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b, \
   for(iters=1; iters<CG_max_iter; iters++)
   {
     // CG stopping criterion
-    if (trans_res_norm <= CG_epsilon/10)
+    // if (trans_res_norm <= CG_epsilon/10)
+    if (iters>2)
     {
       qpb_overlap_kl_pfrac(y, x);
       qpb_spinor_xmy(w, b, y);
