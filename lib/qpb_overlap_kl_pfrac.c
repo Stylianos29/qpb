@@ -238,25 +238,10 @@ left_inverse_factor(qpb_spinor_field y, qpb_spinor_field x, qpb_double shift)
 {
   /* Implements: 1/(X^2 + shift) x */
 
-  qpb_double *shifts;
-  shifts = qpb_alloc(sizeof(qpb_double));
-  shifts = &shift;
-
-  qpb_spinor_field yMS[1];
-  yMS[0] = mscg_temp_vecs[0];
-  qpb_spinor_field_set_zero(yMS[0]);
-
-  qpb_mscongrad(yMS, x, ov_params.gauge_ptr, ov_params.clover, kernel_kappa, \
-    1, shifts, ov_params.c_sw, MS_solver_precision, \
+  qpb_spinor_field_set_zero(y);
+  qpb_mscongrad(&y, x, ov_params.gauge_ptr, ov_params.clover, kernel_kappa, \
+    1, &shift, ov_params.c_sw, MS_solver_precision, \
     MS_maximum_solver_iterations);
-
-  // Test inversion
-  qpb_double inversion_check;
-  shifted_X_op(y, yMS[0], shift);
-  qpb_spinor_xdotx(&inversion_check, y);
-  print("Single fraction inversion check for shift %e: %e\n", shift, inversion_check);
-
-  qpb_spinor_xeqy(y, yMS[0]);
 
   return;
 }
