@@ -315,6 +315,7 @@ qpb_reduced_product_form(qpb_spinor_field y, qpb_spinor_field x)
   // (X^2 + c[3] + c[1] - c[right_factor_idx-1]) x
   shifted_X_op(y, x, constant1);
   
+  qpb_spinor_field_set_zero(z);
   qpb_mscongrad(&z, x, ov_params.gauge_ptr, ov_params.clover, kernel_kappa, \
     1, &c[right_factor_idx-1], ov_params.c_sw, MS_solver_precision, \
     MS_maximum_solver_iterations);
