@@ -238,10 +238,26 @@ left_inverse_factor(qpb_spinor_field y, qpb_spinor_field x, qpb_double shift)
 {
   /* Implements: 1/(X^2 + shift) x */
 
-  qpb_mscongrad(&y, x, ov_params.gauge_ptr, ov_params.clover, kernel_kappa, \
-    1, &shift, ov_params.c_sw, MS_solver_precision, \
+  qpb_double *shifts;
+  shifts = qpb_alloc(sizeof(qpb_double));
+  shifts = &shift;
+
+  qpb_spinor_field yMS[1];
+  yMS[0] = mscg_temp_vecs[0];
+  qpb_spinor_field_set_zero(yMS[0]);
+
+  qpb_mscongrad(yMS, x, ov_params.gauge_ptr, ov_params.clover, kernel_kappa, \
+    1, shifts, ov_params.c_sw, MS_solver_precision, \
     MS_maximum_solver_iterations);
- 
+
+  // Test inversion
+  qpb_double inversion_check;
+  shifted_X_op(y, yMS[0], shift);
+  qpb_spinor_xdotx(&inversion_check, y);
+  print("Single fraction inversion check for shift %e: %e\n", shift, inversion_check);
+
+  qpb_spinor_xeqy(y, yMS[0]);
+
   return;
 }
 
@@ -351,7 +367,6 @@ void
 qpb_overlap_kl_pfrac_multiply_up(qpb_spinor_field y, qpb_spinor_field x)
 {
   /* Implements: 
-      
 
     with ρ+ = ρ + overlap_mass/2 and ρ- = ρ - overlap_mass/2.  
   */
@@ -359,18 +374,9 @@ qpb_overlap_kl_pfrac_multiply_up(qpb_spinor_field y, qpb_spinor_field x)
   qpb_spinor_field z = ov_temp_vecs[2];
   qpb_spinor_field w = ov_temp_vecs[3];  qpb_double invert_norm;
   
-  qpb_double *shifts = qpb_alloc(sizeof(qpb_double));
-  qpb_spinor_field yMS[1];
-
   // Left fraction
   qpb_spinor_gamma5(y, x);
   left_inverse_factor(z, y, c[left_fraction_idx-1]);
-
-  // Test inversion
-  qpb_double inversion_check;
-  shifted_X_op(y, z, c[left_fraction_idx-1]);
-  qpb_spinor_xdotx(&inversion_check, y);
-  print("Single fraction inversion check: %e\n", inversion_check);
 
   // Right fraction
   qpb_reduced_product_form(y, x);
