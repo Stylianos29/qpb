@@ -370,6 +370,7 @@ qpb_overlap_kl_pfrac_multiply_up(qpb_spinor_field y, qpb_spinor_field x)
   qpb_double inversion_check;
   shifted_X_op(y, z, c[left_fraction_idx-1]);
   qpb_spinor_xdotx(&inversion_check, y);
+  print("Single fraction inversion check: %e\n", inversion_check)
 
   // Right fraction
   qpb_reduced_product_form(y, x);
