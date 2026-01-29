@@ -305,9 +305,10 @@ qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b, \
 
     /* y = A(p) */
     qpb_overlap_kl_pfrac(w, p);
+    qpb_conjugate_overlap_kl_pfrac(y, w);
 
-    /* omega = dot(w(p), w(p)) */
-    qpb_spinor_xdotx(&omega.re, w);
+    /* omega = dot(p, A(p)) */
+    qpb_spinor_xdoty(&omega, p, y);
 
     /* alpha = dot(r, r)/omega */
     alpha = CDEV(gamma, omega);
@@ -317,17 +318,20 @@ qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b, \
 
     if(iters % n_reeval == 0) 
     {
-      qpb_overlap_kl_pfrac(y, x);
-      qpb_spinor_xmy(r, b, y);
+      qpb_overlap_kl_pfrac(w, x);
+      qpb_conjugate_overlap_kl_pfrac(y, w);
+      qpb_spinor_xmy(r, b, w);
+      qpb_spinor_xmy(z, bprime, y);
 	  }
     else
 	  {
       alpha.re = -CDEVR(gamma, omega);
       alpha.im = -CDEVI(gamma, omega);
       qpb_spinor_axpy(r, alpha, w, r);
+      qpb_spinor_axpy(z, alpha, y, z);
 	  }
     // z_k+1 = D^+ r_k+1
-    qpb_conjugate_overlap_kl_pfrac(z, r);
+    // qpb_conjugate_overlap_kl_pfrac(z, r);
     qpb_spinor_xdotx(&res_norm, z);
     
     // beta = ||z_k+1||^2/||z_k||^2
