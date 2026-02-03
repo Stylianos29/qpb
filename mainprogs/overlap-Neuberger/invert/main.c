@@ -263,15 +263,16 @@ main(int argc, char *argv[])
     }
   
   int kl_iters;
-  if(sscanf(qpb_parse("KL iters"), "%d", &kl_iters)!=1)
+  if(sscanf(qpb_parse("Upper diagonal iters"), "%d", &kl_iters)!=1)
     {
       error("error parsing for %s\n", 
-	    "KL iters");
+	    "Upper diagonal iters");
       exit(QPB_PARSER_ERROR);
     }
   if(kl_iters<1)
     {
-      error("only provide positive integer values for KL iters, quiting\n");
+      error("only provide positive integer values for upper diagonal iters,\
+         quitting\n");
       exit(QPB_PARAMETERS_ERROR);
     }
 
@@ -380,7 +381,8 @@ main(int argc, char *argv[])
 	  exit(QPB_PARSER_ERROR);	  
 	}
 
-      sprintf(aux_string, "Gaussian smearing %s %s", conf_smearing_name, conf_smearing_param_name);
+      sprintf(aux_string, "Gaussian smearing %s %s", conf_smearing_name,\
+         conf_smearing_param_name);
       if(sscanf(qpb_parse(aux_string), "%lf", &param_conf_smearing_gauss)!=1)
 	{
 	  error("error parsing for %s\n", 
@@ -682,7 +684,8 @@ main(int argc, char *argv[])
     case SOURCE_SMEARED:
       print(" Will smear source\n");
       print(" Gaussian smearing = (%f, %d)\n", delta_gauss, n_gauss);
-      print(" Gaussian source %s smearing = (%f, %d)\n", conf_smearing_name, param_conf_smearing_gauss, n_conf_smearing_gauss);
+      print(" Gaussian source %s smearing = (%f, %d)\n", conf_smearing_name,\
+         param_conf_smearing_gauss, n_conf_smearing_gauss);
       break;
       
     case SOURCE_NOT_SMEARED:
