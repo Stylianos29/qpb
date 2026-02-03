@@ -1081,8 +1081,8 @@ qpb_bicgstab_overlap_Chebyshev(qpb_spinor_field x, qpb_spinor_field b,\
     return -1;
   }
 
-  print(" \tAfter %d iterations BiCGStab converged\n", iters);
-  print(" residual = %e, relative = %e, t = %g sec\n", res_norm, res_norm / b_norm, t);
+  print(" \tAfter %d iters, BiCGStab converged, res = %e, relative = %e, t = %g sec\n",\
+              iters, res_norm, res_norm / b_norm, t);
   
   return iters;
 }
