@@ -763,19 +763,21 @@ qpb_congrad_overlap_Chebyshev(qpb_spinor_field x, qpb_spinor_field b,\
   qpb_gamma5_overlap_Chebyshev(bprime, w);
   qpb_spinor_xdotx(&bprime_norm, bprime);
 
+  qpb_spinor_field_set_zero(x);
+
   /* r0 = bprime - A(x) */
   // qpb_gamma5_overlap_Chebyshev(w, x);
   // qpb_gamma5_overlap_Chebyshev(p, w);
   // qpb_spinor_xmy(r, bprime, p);
 
-  /* Or r0=bprime for short since x0=0 */
+  /* Or r0=b and 0=bprime for short since x0=0 */
   qpb_spinor_xeqy(r, b);
   qpb_spinor_xeqy(z, bprime);
 
   qpb_spinor_xdotx(&gamma.re, z);
   gamma.im = 0;
   res_norm = gamma.re;
-  /* p = r0 */
+  /* p = z0 */
   qpb_spinor_xeqy(p, z);
 
   qpb_double t = qpb_stop_watch(0);
