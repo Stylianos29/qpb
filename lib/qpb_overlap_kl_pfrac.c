@@ -372,3 +372,126 @@ qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b, \
 
   return iters;
 }
+
+
+int
+qpb_bicgstab_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b,\
+                                              qpb_double epsilon, int max_iter)
+{
+  qpb_spinor_field r0 = ov_temp_vecs[12];
+  qpb_spinor_field r = ov_temp_vecs[13];
+  qpb_spinor_field p = ov_temp_vecs[14];
+  qpb_spinor_field u = ov_temp_vecs[15];
+  qpb_spinor_field v = ov_temp_vecs[16];
+
+  int iters = 0;
+  const int n_reeval = 10000;
+  int n_echo = 1;
+
+  qpb_double res_norm, b_norm;
+  qpb_complex_double alpha = {1, 0}, omega = {1, 0};
+  qpb_complex_double beta, gamma, rho, zeta;
+
+  // Initialize fields
+  qpb_spinor_field_set_zero(p);
+  qpb_spinor_field_set_zero(u);
+
+  qpb_spinor_xdotx(&b_norm, b);
+
+  // Initial guess x=0
+  qpb_spinor_field_set_zero(x);
+  // qpb_overlap_kl_pfrac(r, x);
+  // qpb_spinor_xmy(r, b, r);
+  qpb_spinor_xeqy(r, b);
+
+  // Or r0=r for short since x0=0
+  qpb_spinor_xeqy(r0, r);
+  qpb_spinor_xdotx(&gamma.re, r0);
+  gamma.im = 0;
+  res_norm = gamma.re;
+
+  // rho0 = ||r0||^2
+  rho = gamma;
+
+  qpb_double t = qpb_stop_watch(0);
+  for(iters=1; iters<max_iter; iters++)
+  {
+    if(res_norm / b_norm <= epsilon)
+      break;
+    
+    qpb_spinor_xdoty(&gamma, r0, r);
+
+    // beta = (rho_i/rho_{i-1})*(alpha/omega)
+    beta = CMUL(CDEV(gamma, rho), CDEV(alpha, omega));
+    // omega = - omega
+    omega = CNEGATE(omega);
+    // p_i = p_{i-1} - omega*u
+    qpb_spinor_axpy(p, omega, u, p);
+    // p_i = r_{i-1} + beta*p_i
+    qpb_spinor_axpy(p, beta, p, r);
+
+    // u = D.p
+    qpb_overlap_kl_pfrac(u, p);
+    // beta = (r0, u)
+    qpb_spinor_xdoty(&beta, r0, u);
+    rho = gamma;
+    // alpha = rho/beta
+    alpha = CDEV(rho, beta);
+    // alpha = - alpha
+    alpha = CNEGATE(alpha);
+    // r = r - alpha*u
+    qpb_spinor_axpy(r, alpha, u, r);
+    // v = D.r
+    qpb_overlap_kl_pfrac(v, r);
+    // zeta = (v, r)
+    qpb_spinor_xdoty(&zeta, v, r);
+    // beta = (r, r)
+    qpb_spinor_xdotx(&beta.re, v);
+    beta.im = 0;
+    // omega = zeta/beta
+    omega = CDEV(zeta, beta);
+    // alpha = -alpha (restore alpha sign)
+    alpha = CNEGATE(alpha);
+    // x = x + omega*r
+    qpb_spinor_axpy(x, omega, r, x);
+    // x = x + alpa*p
+    qpb_spinor_axpy(x, alpha, p, x);
+
+    if(iters % n_reeval == 0)
+    {
+      qpb_overlap_kl_pfrac(r, x);
+      qpb_spinor_xmy(r, b, r);
+    }
+    else
+    {
+      // omega = -omega
+      omega = CNEGATE(omega);
+      // r = r - omega*v
+      qpb_spinor_axpy(r, omega, v, r);
+      // omega = -omega
+      omega = CNEGATE(omega);
+    }
+    qpb_spinor_xdotx(&res_norm, r);
+    
+    if((iters % n_echo == 0))
+      print(" iters = %8d, res = %e\n", iters, res_norm / b_norm);
+  }
+  t = qpb_stop_watch(t);
+  qpb_overlap_kl_pfrac(r, x);
+  qpb_spinor_xmy(r, b, r);
+  qpb_spinor_xdotx(&res_norm, r);
+
+  if(iters==max_iter)
+  {
+    error(" !\n");
+    error(" BiCGStab *did not* converge, after %d iterations\n", iters);
+    error(" residual = %e, relative = %e, t = %g sec\n", res_norm, res_norm / b_norm, t);
+    error(" !\n");
+    return -1;
+  }
+
+  print(" \tAfter %d iterations BiCGStab converged\n", iters);
+  print(" residual = %e, relative = %e, t = %g sec\n", res_norm, res_norm / b_norm, t);
+  
+  return iters;
+}
