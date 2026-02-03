@@ -686,7 +686,7 @@ qpb_bicgstab_overlap_Zolotarev(qpb_spinor_field x, qpb_spinor_field b,\
     qpb_spinor_xdotx(&res_norm, r);
     
     if((iters % n_echo == 0))
-      print(" iters = %8d, res = %e\n", iters, res_norm / b_norm);
+      print(" \t iters = %8d, res = %e\n", iters, res_norm / b_norm);
   }
   t = qpb_stop_watch(t);
   qpb_overlap_Zolotarev(r, x);
