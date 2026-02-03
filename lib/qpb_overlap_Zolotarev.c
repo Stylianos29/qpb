@@ -29,7 +29,7 @@
 #include <gsl/gsl_sf_elljac.h>
 
 
-#define OVERLAP_NUMB_TEMP_VECS 7
+#define OVERLAP_NUMB_TEMP_VECS 12
 #define MSCG_NUMB_TEMP_VECS 20
 
 
@@ -590,11 +590,11 @@ int
 qpb_bicgstab_overlap_Zolotarev(qpb_spinor_field x, qpb_spinor_field b,\
                                               qpb_double epsilon, int max_iter)
 {
-  qpb_spinor_field r0 = ov_temp_vecs[12];
-  qpb_spinor_field r = ov_temp_vecs[13];
-  qpb_spinor_field p = ov_temp_vecs[14];
-  qpb_spinor_field u = ov_temp_vecs[15];
-  qpb_spinor_field v = ov_temp_vecs[16];
+  qpb_spinor_field r0 = ov_temp_vecs[7];
+  qpb_spinor_field r = ov_temp_vecs[8];
+  qpb_spinor_field p = ov_temp_vecs[9];
+  qpb_spinor_field u = ov_temp_vecs[10];
+  qpb_spinor_field v = ov_temp_vecs[11];
 
   int iters = 0;
   const int n_reeval = 10000;
