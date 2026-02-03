@@ -951,11 +951,11 @@ main(int argc, char *argv[])
               Lanczos_epsilon, Lanczos_max_iters, N_Cheb, delta_max, delta_min);
   qpb_double t_overhead = qpb_stop_watch(t);
   print(" Total overhead time: %f sec\n", t_overhead);
-
+n_spinors=1;
   for(int i=0; i<n_spinors; i++)
   {
     print("\n");
-    iters = qpb_congrad_overlap_Chebyshev(sol[i], source[i], \
+    iters = qpb_bicgstab_overlap_Chebyshev(sol[i], source[i], \
                                               solver_epsilon, solver_max_iters);
     print(" Done vector = %d / %d, iters = %d\n", i+1, n_spinors, iters);
   }
