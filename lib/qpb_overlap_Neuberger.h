@@ -11,5 +11,6 @@ void qpb_gamma5_sign_function_of_X_Neuberger(qpb_spinor_field, qpb_spinor_field)
 void qpb_overlap_Neuberger(qpb_spinor_field, qpb_spinor_field);
 void qpb_gamma5_overlap_Neuberger(qpb_spinor_field, qpb_spinor_field);
 int qpb_congrad_overlap_Neuberger(qpb_spinor_field, qpb_spinor_field, qpb_double, int);
+int qpb_bicgstab_overlap_Neuberger(qpb_spinor_field, qpb_spinor_field, qpb_double, int);
 
 #endif /* _QPB_OVERLAP_NEUBERGER_H */
