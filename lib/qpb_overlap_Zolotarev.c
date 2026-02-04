@@ -160,7 +160,7 @@ tridiag_eigenv(qpb_double *eig, qpb_double *a, qpb_double *b, int n)
 
 
 int
-qpb_extreme_eigenvalues_of_X_squared(qpb_double *min_eigv, \
+qpb_extreme_eigenvalues_of_X_squared_Zolotarev(qpb_double *min_eigv, \
   qpb_double *max_eigv, qpb_double Lanczos_epsilon, int max_iters)
 {
   /* It calculates the extreme eigenvalues of the eigenvalue spectrum 
@@ -286,7 +286,7 @@ qpb_overlap_Zolotarev_init(void * gauge, qpb_clover_term clover, \
     /* First the the extrema of the eigenvalues spectrum of X^2,
     X = g5*(D - rho), are calculated and are stored inside the
     'min_eigv_squared' and 'max_eigv_squared'variables correspondingly. */
-    int Lanczos_iters = qpb_extreme_eigenvalues_of_X_squared(&min_eigv_squared,\
+    int Lanczos_iters = qpb_extreme_eigenvalues_of_X_squared_Zolotarev(&min_eigv_squared,\
                       &max_eigv_squared, Lanczos_epsilon, Lanczos_max_iters);
     print(" Total number of Lanczos algorithm iterations = %d\n", \
                                                                 Lanczos_iters);
@@ -567,10 +567,7 @@ qpb_congrad_overlap_Zolotarev(qpb_spinor_field x, qpb_spinor_field b, \
 
     qpb_spinor_xdotx(&true_res_norm, r);
     if((iters % n_echo == 0))
-    {
-      print(" \t iters = %8d, CGNE res = %.15e\n", iters, res_norm / bprime_norm);
-      print(" \t iters = %8d, true res = %.15e\n", iters, true_res_norm / b_norm);
-    }
+      print(" \t iters = %8d, res = %e\n", iters, true_res_norm / b_norm);
   }
   t = qpb_stop_watch(t);
 
