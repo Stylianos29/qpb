@@ -445,11 +445,11 @@ qpb_congrad_overlap_Neuberger(qpb_spinor_field x, qpb_spinor_field b, \
     {
       // Re-evaluate r and z exactly
       // r = b - D.x
-      qpb_overlap_Chebyshev(w, x);
+      qpb_overlap_Neuberger(w, x);
       qpb_spinor_xmy(r, b, w);
       // z = bprime - D^+.x
       qpb_spinor_gamma5(w, w);
-      qpb_gamma5_overlap_Chebyshev(y, w);
+      qpb_gamma5_overlap_Neuberger(y, w);
       qpb_spinor_xmy(z, bprime, y);
 	  }
     else
