@@ -160,7 +160,7 @@ tridiag_eigenv(qpb_double *eig, qpb_double *a, qpb_double *b, int n)
 
 
 int
-qpb_extreme_eigenvalues_of_X_squared_Zolotarev(qpb_double *min_eigv, \
+qpb_extreme_eigenvalues_of_X_squared(qpb_double *min_eigv, \
   qpb_double *max_eigv, qpb_double Lanczos_epsilon, int max_iters)
 {
   /* It calculates the extreme eigenvalues of the eigenvalue spectrum 
@@ -286,7 +286,7 @@ qpb_overlap_Zolotarev_init(void * gauge, qpb_clover_term clover, \
     /* First the the extrema of the eigenvalues spectrum of X^2,
     X = g5*(D - rho), are calculated and are stored inside the
     'min_eigv_squared' and 'max_eigv_squared'variables correspondingly. */
-    int Lanczos_iters = qpb_extreme_eigenvalues_of_X_squared_Zolotarev(&min_eigv_squared,\
+    int Lanczos_iters = qpb_extreme_eigenvalues_of_X_squared(&min_eigv_squared,\
                       &max_eigv_squared, Lanczos_epsilon, Lanczos_max_iters);
     print(" Total number of Lanczos algorithm iterations = %d\n", \
                                                                 Lanczos_iters);
@@ -489,33 +489,31 @@ qpb_congrad_overlap_Zolotarev(qpb_spinor_field x, qpb_spinor_field b, \
   int n_reeval = 100;
   int n_echo = 100;
   int iters = 0;
-  
+
   qpb_double res_norm, true_res_norm, b_norm, bprime_norm;
   qpb_complex_double alpha = {1, 0}, omega = {1, 0};
   qpb_complex_double beta, gamma;
-
+  
   qpb_spinor_xdotx(&b_norm, b);
   true_res_norm = b_norm;
-
-  // bprime = Dov^+ b
+  
+  // bprime = Dov^+.b
   qpb_spinor_gamma5(w, b);
   qpb_gamma5_overlap_Zolotarev(bprime, w);
   qpb_spinor_xdotx(&bprime_norm, bprime);
 
   qpb_spinor_field_set_zero(x);
 
-  /* r0 = bprime - A(x) */
-  // qpb_gamma5_overlap_Zolotarev(w, x);
-  // qpb_gamma5_overlap_Zolotarev(p, w);
-  // qpb_spinor_xmy(r, bprime, p);
-  
-  /* Or r0=b and 0=bprime for short since x0=0 */
+  /* r0 = b - D.x */
+  /* z0 = bprime - D^+ D.x */
+  /* Or r0=b and z0=bprime for short since x0=0 */
   qpb_spinor_xeqy(r, b);
   qpb_spinor_xeqy(z, bprime);
 
   qpb_spinor_xdotx(&gamma.re, z);
   gamma.im = 0;
   res_norm = gamma.re;
+  
   /* p = z0 */
   qpb_spinor_xeqy(p, z);
 
@@ -543,11 +541,11 @@ qpb_congrad_overlap_Zolotarev(qpb_spinor_field x, qpb_spinor_field b, \
     {
       // Re-evaluate r and z exactly
       // r = b - D.x
-      qpb_overlap_Chebyshev(w, x);
+      qpb_overlap_Zolotarev(w, x);
       qpb_spinor_xmy(r, b, w);
       // z = bprime - D^+.x
       qpb_spinor_gamma5(w, w);
-      qpb_gamma5_overlap_Chebyshev(y, w);
+      qpb_gamma5_overlap_Zolotarev(y, w);
       qpb_spinor_xmy(z, bprime, y);
 	  }
     else
@@ -567,7 +565,7 @@ qpb_congrad_overlap_Zolotarev(qpb_spinor_field x, qpb_spinor_field b, \
 
     qpb_spinor_xdotx(&true_res_norm, r);
     if((iters % n_echo == 0))
-      print(" \t iters = %8d, res = %e\n", iters, true_res_norm / b_norm);
+      print(" \t iters = %8d, res = %.15e\n", iters, true_res_norm / b_norm);
   }
   t = qpb_stop_watch(t);
 
@@ -579,13 +577,14 @@ qpb_congrad_overlap_Zolotarev(qpb_spinor_field x, qpb_spinor_field b, \
   {
     error(" !\n");
     error(" CG *did not* converge, after %d iterations\n", iters);
-    error(" residual = %e, relative = %.25e, t = %g sec\n", res_norm, res_norm / b_norm, t);
+    error(" residual = %e, relative = %e, t = %g sec\n", res_norm, \
+                                                      res_norm / b_norm, t);
     error(" !\n");
     return -1;
   }
 
   print(" \tAfter %d iters, CG converged, CGNE res = %e, relative = %e, t = %g sec\n",\
          iters, res_norm / bprime_norm, true_res_norm / b_norm, t);
-
+  
   return iters;
 }
