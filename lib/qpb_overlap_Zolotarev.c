@@ -578,9 +578,8 @@ qpb_congrad_overlap_Zolotarev(qpb_spinor_field x, qpb_spinor_field b, \
     return -1;
   }
 
-  print(" \tAfter %d iters, CG converged, res = %e, relative = %e, "
-        "t = %g sec\n",
-         iters, res_norm, res_norm / b_norm, t);
+  print(" \tAfter %d iters, BiCGStab converged, res = %e, relative = %e, t = %g sec\n",\
+              iters, res_norm, res_norm / b_norm, t);
   
   return iters;
 }
@@ -703,7 +702,7 @@ qpb_bicgstab_overlap_Zolotarev(qpb_spinor_field x, qpb_spinor_field b,\
   }
 
   print(" \tAfter %d iters, BiCGStab converged, res = %e, relative = %e, t = %g sec\n",\
-            iters, res_norm, res_norm / b_norm, t);
-  
+              iters, res_norm, res_norm / b_norm, t);
+
   return iters;
 }
