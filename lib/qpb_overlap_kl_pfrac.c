@@ -131,8 +131,9 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover, \
       numerators[i] = 2*constant_term/powl(cos(trig_arg), 2);
       // print("numerator[%d] = %.25f, shift[%d] = %.25f\n", i, numerators[i], \
                                                               i, shifts[i]);
-      odd_shifts[i] = 1.0/pow(tan(trig_arg), 2);
-      even_shifts[i] = pow(tan(trig_arg), 2);
+      odd_shifts[i] = pow(tan(trig_arg), 2);
+      even_shifts[i] = 1.0/pow(tan(trig_arg), 2);
+      print("odd_shift[%d] = %.25f, even_shift[%d] = %.25f\n", i, odd_shifts[i], i, even_shifts[i]);
     }
 
     // Modify the numerical constants of the partial fraction expansions using
