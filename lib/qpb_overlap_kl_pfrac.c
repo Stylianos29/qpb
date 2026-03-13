@@ -264,8 +264,8 @@ qpb_overlap_kl_pfrac(qpb_spinor_field y, qpb_spinor_field x)
   qpb_double overlap_mass = ov_params.mass; // Overlap operator Dov,m mass
   qpb_double rho = ov_params.rho;
 
-  qpb_complex a = {rho + 0.5*overlap_mass, 0.};
-  qpb_complex b = {rho - 0.5*overlap_mass, 0.};
+  qpb_complex a = {rho_plus, 0.};
+  qpb_complex b = {rho_minus, 0.};
 
   qpb_gamma5_sign_function_of_X_pfrac(z, x);
 
@@ -305,7 +305,7 @@ partial_fraction_decomposition(qpb_spinor_field y, qpb_spinor_field x,\
     c0 = 1, since the numerator and denominator have the same leading term X^2
   */
 
-  qpb_spinor_field sum = ov_temp_vecs[3];
+  qpb_spinor_field sum = ov_temp_vecs[2];
 
   qpb_spinor_field yMS[KL_diagonal_order];
   for(int sigma=0; sigma<KL_diagonal_order; sigma++)
