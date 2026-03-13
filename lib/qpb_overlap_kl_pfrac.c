@@ -119,6 +119,8 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover, \
     /* Calculate the numerical terms of the partial fraction expansion */
     shifts = qpb_alloc(sizeof(qpb_double)*KL_diagonal_order);
     numerators = qpb_alloc(sizeof(qpb_double)*KL_diagonal_order);
+    odd_shifts = qpb_alloc(sizeof(qpb_double)*KL_diagonal_order);
+    even_shifts = qpb_alloc(sizeof(qpb_double)*KL_diagonal_order);
 
     constant_term = 1.0/((qpb_double) (2*KL_diagonal_order+1));
 
@@ -130,7 +132,7 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover, \
       // print("numerator[%d] = %.25f, shift[%d] = %.25f\n", i, numerators[i], \
                                                               i, shifts[i]);
       odd_shifts[i] = pow(tan(trig_arg), 2);
-      even_shifts[i] = 1/pow(tan(trig_arg), 2);
+      even_shifts[i] = 1.0/pow(tan(trig_arg), 2);
     }
 
     // Modify the numerical constants of the partial fraction expansions using
@@ -172,6 +174,8 @@ qpb_overlap_kl_pfrac_finalize()
 
   free(numerators);
   free(shifts);
+  free(odd_shifts);
+  free(even_shifts);
   
   return;
 }
