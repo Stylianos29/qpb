@@ -131,8 +131,8 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover, \
       numerators[i] = 2*constant_term/powl(cos(trig_arg), 2);
       // print("numerator[%d] = %.25f, shift[%d] = %.25f\n", i, numerators[i], \
                                                               i, shifts[i]);
-      odd_shifts[i] = pow(tan(trig_arg), 2);
-      even_shifts[i] = 1.0/pow(tan(trig_arg), 2);
+      odd_shifts[i] = 1.0/pow(tan(trig_arg), 2);
+      even_shifts[i] = pow(tan(trig_arg), 2);
     }
 
     // Modify the numerical constants of the partial fraction expansions using
@@ -316,7 +316,7 @@ partial_fraction_decomposition(qpb_spinor_field y, qpb_spinor_field x,\
     qpb_spinor_field_set_zero(yMS[sigma]);
   }
 
-  qpb_double c0 = 1;
+  qpb_double c0 = 1.0;
   qpb_double *c;
   c = qpb_alloc(sizeof(qpb_double) * KL_diagonal_order);
 
@@ -339,6 +339,8 @@ partial_fraction_decomposition(qpb_spinor_field y, qpb_spinor_field x,\
     }
 
     c[i] = numerator_prod / denominator_prod;
+
+    print("c[%d] = %.25f and denominator_shifts[%d] = %.25f \n", i, c[i], i, denominator_shifts[i]);
   }
 
   qpb_double kernel_mass = ov_params.m_bare; // Kernel operator bare mass
