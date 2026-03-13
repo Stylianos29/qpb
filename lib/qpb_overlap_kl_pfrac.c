@@ -276,8 +276,9 @@ qpb_overlap_kl_pfrac(qpb_spinor_field y, qpb_spinor_field x)
 
 
 void
-qpb_gamma5_overlap_kl_pfrac(qpb_spinor_field y, qpb_spinor_field x)
+qpb_conjugate_overlap_kl_pfrac(qpb_spinor_field y, qpb_spinor_field x)
 {
+  qpb_spinor_gamma5(x, x);
   qpb_overlap_kl_pfrac(y, x);
   qpb_spinor_gamma5(y, y);
 
@@ -471,8 +472,8 @@ qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b, \
   qpb_spinor_field_set_zero(x);
 
   /* r0 = bprime - A(x) */
-  // qpb_gamma5_overlap_kl_pfrac(w, x);
-  // qpb_gamma5_overlap_kl_pfrac(p, w);
+  // qpb_preconditioned_overlap_kl_pfrac(w, x);
+  // qpb_conjugate_preconditioned_overlap_kl_pfrac(p, w);
   // qpb_spinor_xmy(r, bprime, p);
   
   /* Or r0 = bprime for short since x0 = 0 */
