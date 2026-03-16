@@ -16,7 +16,7 @@
 #include <math.h>
 
 
-#define OVERLAP_NUMB_TEMP_VECS 15
+#define OVERLAP_NUMB_TEMP_VECS 16
 #define MSCG_NUMB_TEMP_VECS 20
 
 
@@ -116,6 +116,7 @@ int compute_coefficients(int n,
     free(c);
     return 0;
 }
+
 
 /* --------------------------- MATRIX FUNCTIONS --------------------------- */ 
 
@@ -313,6 +314,28 @@ X_op(qpb_spinor_field y, qpb_spinor_field x)
 }
 
 
+INLINE void
+X_op_shifted(qpb_spinor_field y, qpb_spinor_field x, qpb_double shift)
+{
+  /* Implements X ≡ γ5(a*D - rho*I) */
+
+  void *dslash_args[4];
+
+  dslash_args[0] = ov_params.gauge_ptr;
+  dslash_args[1] = &ov_params.m_bare;
+  dslash_args[2] = &ov_params.clover;
+  dslash_args[3] = &ov_params.c_sw;
+
+  qpb_spinor_field z = ov_temp_vecs[15];
+
+  ov_params.g5_dslash_op(z, x, dslash_args);
+
+  qpb_spinor_axpy(y, (qpb_complex) {shift, 0.0}, x, z);
+
+  return;
+}
+
+
 void
 qpb_gamma5_sign_function_of_X_pfrac(qpb_spinor_field y, qpb_spinor_field x)
 {
@@ -449,11 +472,13 @@ qpb_preconditioner(qpb_spinor_field y, qpb_spinor_field x)
   qpb_complex b = {-1.0/(rho_minus*constant_term), 0.};
 
   // First term
-  X_op(z, x);
+  X_op(y, x);
+  X_op_shifted(z, y, even_shifts[0]);
 
   // Second term
   qpb_spinor_gamma5(y, x);
-  qpb_even_partial_fraction_decomposition(w, y);
+  // qpb_even_partial_fraction_decomposition(w, y);
+  X_op_shifted(w, y, even_shifts[0]);
 
   qpb_spinor_axpby(y, a, z, b, w);
 
@@ -475,13 +500,17 @@ qpb_preconditioned_overlap_kl_pfrac(qpb_spinor_field y, qpb_spinor_field x)
   qpb_complex b = {-rho_plus/(rho_minus*constant_term), 0.};
 
   // First term
-  qpb_odd_partial_fraction_decomposition(z, x);
-  D_op(y, z);
-  X_op(z, y);
+  qpb_odd_partial_fraction_decomposition(y, x);
+  D_op(z, y);
+  X_op(y, z);
+  // Shifted X operator with the second shift of the odd partial fraction expansion
+  X_op_shifted(z, y, even_shifts[0]);
+
 
   // Second term
   qpb_spinor_gamma5(y, x);
-  qpb_even_partial_fraction_decomposition(w, y);
+  // qpb_even_partial_fraction_decomposition(w, y);
+  X_op_shifted(z, y, odd_shifts[0]);
 
   qpb_spinor_axpby(y, a, z, b, w);
 
@@ -503,12 +532,14 @@ qpb_conjugate_preconditioned_overlap_kl_pfrac(qpb_spinor_field y, qpb_spinor_fie
   qpb_complex b = {-rho_plus/(rho_minus*constant_term), 0.};
 
   // First term
-  D_op(z, x);
+  X_op_shifted(y, x, even_shifts[0]);
+  D_op(z, y);
   qpb_odd_partial_fraction_decomposition(y, z);
   X_op(z, y);
 
   // Second term
-  qpb_even_partial_fraction_decomposition(y, x);
+  // qpb_even_partial_fraction_decomposition(y, x);
+  X_op_shifted(y, x, odd_shifts[0]);
   qpb_spinor_gamma5(w, y);
 
   qpb_spinor_axpby(y, a, z, b, w);
