@@ -478,7 +478,7 @@ qpb_preconditioner(qpb_spinor_field y, qpb_spinor_field x)
   // Second term
   qpb_spinor_gamma5(y, x);
   // qpb_even_partial_fraction_decomposition(w, y);
-  X_op_shifted(w, y, even_shifts[0]);
+  X_op_shifted(w, y, odd_shifts[0]);
 
   qpb_spinor_axpby(y, a, z, b, w);
 
@@ -510,7 +510,7 @@ qpb_preconditioned_overlap_kl_pfrac(qpb_spinor_field y, qpb_spinor_field x)
   // Second term
   qpb_spinor_gamma5(y, x);
   // qpb_even_partial_fraction_decomposition(w, y);
-  X_op_shifted(z, y, odd_shifts[0]);
+  X_op_shifted(w, y, odd_shifts[0]);
 
   qpb_spinor_axpby(y, a, z, b, w);
 
