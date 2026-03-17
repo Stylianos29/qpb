@@ -488,9 +488,12 @@ qpb_preconditioned_overlap_kl_pfrac(qpb_spinor_field y, qpb_spinor_field x)
 
   // Add the first two terms
   qpb_spinor_axpby(sum, a, z, b, w);
+
+  // Third term
+  X_op(w, x);
   
   // Add the third term
-  qpb_spinor_axpy(y, c, x, sum);
+  qpb_spinor_axpy(y, c, w, sum);
 
   return;
 }
@@ -523,8 +526,11 @@ qpb_conjugate_preconditioned_overlap_kl_pfrac(qpb_spinor_field y, qpb_spinor_fie
   // Add the first two terms
   qpb_spinor_axpby(sum, a, z, b, w);
   
+  // Third term
+  X_op(w, x);
+
   // Add the third term
-  qpb_spinor_axpy(y, c, x, sum);
+  qpb_spinor_axpy(y, c, w, sum);
 
   return;
 }
