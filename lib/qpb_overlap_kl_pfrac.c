@@ -450,11 +450,13 @@ qpb_preconditioner(qpb_spinor_field y, qpb_spinor_field x)
   qpb_complex b = {1.0/constant_term, 0.};
 
   // First term
-  X_op(z, x);
+  qpb_spinor_xeqy(z, x);
 
   // Second term
-  qpb_spinor_gamma5(y, x);
-  qpb_even_partial_fraction_decomposition(w, y);
+  qpb_spinor_gamma5(w, x);
+  // TODO: Create new function to include an additional 1/X^2 factor term
+  qpb_even_partial_fraction_decomposition(y, w);
+  X_op(w, y);
 
   qpb_spinor_axpby(y, a, z, b, w);
 
@@ -478,22 +480,20 @@ qpb_preconditioned_overlap_kl_pfrac(qpb_spinor_field y, qpb_spinor_field x)
   qpb_complex c = {rho_plus+rho_minus, 0.};
 
   // First term
-  qpb_odd_partial_fraction_decomposition(z, x);
-  D_op(y, z);
-  X_op(z, y);
+  qpb_odd_partial_fraction_decomposition(y, x);
+  D_op(z, y);
 
   // Second term
-  qpb_spinor_gamma5(y, x);
-  qpb_even_partial_fraction_decomposition(w, y);
+  qpb_spinor_gamma5(w, x);
+  // TODO: Create new function to include an additional 1/X^2 factor term
+  qpb_even_partial_fraction_decomposition(y, w);
+  X_op(w, y);
 
   // Add the first two terms
   qpb_spinor_axpby(sum, a, z, b, w);
-
-  // Third term
-  X_op(w, x);
   
   // Add the third term
-  qpb_spinor_axpy(y, c, w, sum);
+  qpb_spinor_axpy(y, c, x, sum);
 
   return;
 }
@@ -517,20 +517,17 @@ qpb_conjugate_preconditioned_overlap_kl_pfrac(qpb_spinor_field y, qpb_spinor_fie
   // First term
   D_op(z, x);
   qpb_odd_partial_fraction_decomposition(y, z);
-  X_op(z, y);
 
   // Second term
+  // TODO: Create new function to include an additional 1/X^2 factor term
   qpb_even_partial_fraction_decomposition(y, x);
-  qpb_spinor_gamma5(w, y);
+  D_op(w, y);
 
   // Add the first two terms
   qpb_spinor_axpby(sum, a, z, b, w);
-  
-  // Third term
-  X_op(w, x);
 
   // Add the third term
-  qpb_spinor_axpy(y, c, w, sum);
+  qpb_spinor_axpy(y, c, x, sum);
 
   return;
 }
