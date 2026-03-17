@@ -42,6 +42,8 @@ static qpb_double *odd_shifts;
 static qpb_double *even_coefficients;
 static qpb_double *odd_coefficients;
 
+static qpb_double *expanded_even_shifts;
+static qpb_double *expanded_even_coefficients;
 
 /* --------------------------- SCALAR FUNCTIONS --------------------------- */ 
 
@@ -115,6 +117,52 @@ int compute_coefficients(int n,
 
     free(c);
     return 0;
+}
+
+/* c_k = tan^2(pi/2 * k/(2n+1)), k = 1..2n */
+static double c(int k, int n)
+{
+    double arg = (M_PI / 2.0) * ((double)k / (2*n + 1));
+    double t = tan(arg);
+    return t * t;
+}
+
+/*
+ * Case 2: (1/x^2) * prod_{i=1}^n (x^2 + c_{2i-1}) / (x^2 + c_{2i})
+ *       = a0/x^2 + sum_{j=1}^n  a_j / (x^2 + c_{2j})
+ *
+ * a0    = prod_{i=1}^n  c_{2i-1} / c_{2i}
+ *
+ * a_j   = (c_{2j} - c_{2j-1}) / c_{2j}
+ *         * prod_{i!=j} (c_{2j} - c_{2i-1}) / (c_{2j} - c_{2i})
+ */
+static void case2_coeffs(int n, double *a0_out, double **a_out)
+{
+    double *a = malloc(n * sizeof(double));
+    if (!a) { *a_out = NULL; return; }
+
+    /* a0 */
+    double a0 = 1.0;
+    for (int i = 1; i <= n; i++)
+        a0 *= c(2*i - 1, n) / c(2*i, n);
+    *a0_out = a0;
+
+    /* a_j, j = 1..n */
+    for (int j = 1; j <= n; j++) {
+        double cj_odd  = c(2*j - 1, n);
+        double cj_even = c(2*j,     n);   /* the pole */
+
+        double prod = (cj_even - cj_odd) / cj_even;
+
+        for (int i = 1; i <= n; i++) {
+            if (i == j) continue;
+            double ci_odd  = c(2*i - 1, n);
+            double ci_even = c(2*i,     n);
+            prod *= (cj_even - ci_odd) / (cj_even - ci_even);
+        }
+        a[j-1] = prod;
+    }
+    *a_out = a;
 }
 
 
@@ -224,12 +272,28 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover, \
     compute_coefficients(KL_diagonal_order, &even_shifts, &even_coefficients,\
                                                &odd_shifts, &odd_coefficients);
 
+    expanded_even_coefficients = qpb_alloc(sizeof(qpb_double)*KL_diagonal_order+1);
+
+    expanded_even_shifts = qpb_alloc(sizeof(qpb_double)*(KL_diagonal_order+1));
+    expanded_even_shifts[0] = 0.0;
+    for(int i=0; i<KL_diagonal_order; i++)
+      expanded_even_shifts[i+1] = even_shifts[i];
+
+    double a0;
+    double *a = NULL;
+    case2_coeffs(KL_diagonal_order, &a0, &a);
+    expanded_even_coefficients[0] = a0;
+    for(int i=0; i<KL_diagonal_order; i++)
+      expanded_even_coefficients[i+1] = a[i];
+
     for(int i=0; i<KL_diagonal_order; i++)
     {
       print("odd_shift[%d] = %.25f, even_shift[%d] = %.25f\n",\
                                            i, odd_shifts[i], i, even_shifts[i]);
       print("odd_coefficients[%d] = %.25f, even_coefficients[%d] = %.25f\n",\
                                i, odd_coefficients[i], i, even_coefficients[i]);
+      print("expanded_even_shifts[%d] = %.25f, expanded_even_coefficients[%d] = %.25f\n",\
+                               i, expanded_even_shifts[i], i, expanded_even_coefficients[i]);
     }
 
     // Modify the numerical constants of the partial fraction expansions using
@@ -244,7 +308,7 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover, \
       }
     }
 
-    qpb_mscongrad_init(KL_diagonal_order);
+    qpb_mscongrad_init(KL_diagonal_order+1);
 
   }
 	
@@ -267,12 +331,17 @@ qpb_overlap_kl_pfrac_finalize()
   
   ov_params.initialized = 0;
   
-  qpb_mscongrad_finalize(KL_diagonal_order);
+  qpb_mscongrad_finalize(KL_diagonal_order+1);
 
   free(numerators);
   free(shifts);
   free(odd_shifts);
   free(even_shifts);
+
+  free(even_coefficients);
+  free(odd_coefficients);
+  free(expanded_even_shifts);
+  free(expanded_even_coefficients);
   
   return;
 }
@@ -409,8 +478,8 @@ qpb_even_partial_fraction_decomposition(qpb_spinor_field y, qpb_spinor_field x)
 {
   qpb_spinor_field sum = ov_temp_vecs[3];
 
-  qpb_spinor_field yMS[KL_diagonal_order];
-  for(int sigma=0; sigma<KL_diagonal_order; sigma++)
+  qpb_spinor_field yMS[KL_diagonal_order+1];
+  for(int sigma=0; sigma<KL_diagonal_order+1; sigma++)
   {
     yMS[sigma] = mscg_temp_vecs[sigma];
     // It needs to re-initialized to 0 with every call of the function
@@ -421,14 +490,14 @@ qpb_even_partial_fraction_decomposition(qpb_spinor_field y, qpb_spinor_field x)
   qpb_double kernel_kappa = 1./(2*kernel_mass+8.);
 
   qpb_mscongrad(yMS, x, ov_params.gauge_ptr, ov_params.clover, kernel_kappa, \
-    KL_diagonal_order, even_shifts, ov_params.c_sw, MS_solver_precision, \
+    KL_diagonal_order+1, expanded_even_shifts, ov_params.c_sw, MS_solver_precision, \
     MS_maximum_solver_iterations);
 
   // Initialize sum with x
   qpb_spinor_xeqy(sum, x);
   // And then add the rest of the partial fraction terms
-  for(int sigma=0; sigma<KL_diagonal_order; sigma++)
-    qpb_spinor_axpy(sum, (qpb_complex) {even_coefficients[sigma], 0.}, yMS[sigma], sum);
+  for(int sigma=0; sigma<KL_diagonal_order+1; sigma++)
+    qpb_spinor_axpy(sum, (qpb_complex) {expanded_even_coefficients[sigma], 0.}, yMS[sigma], sum);
 
   qpb_spinor_xeqy(y, sum);
 
