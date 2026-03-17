@@ -16,7 +16,7 @@
 #include <math.h>
 
 
-#define OVERLAP_NUMB_TEMP_VECS 16
+#define OVERLAP_NUMB_TEMP_VECS 17
 #define MSCG_NUMB_TEMP_VECS 20
 
 
@@ -314,28 +314,6 @@ X_op(qpb_spinor_field y, qpb_spinor_field x)
 }
 
 
-INLINE void
-X_op_shifted(qpb_spinor_field y, qpb_spinor_field x, qpb_double shift)
-{
-  /* Implements X ≡ γ5(a*D - rho*I) */
-
-  void *dslash_args[4];
-
-  dslash_args[0] = ov_params.gauge_ptr;
-  dslash_args[1] = &ov_params.m_bare;
-  dslash_args[2] = &ov_params.clover;
-  dslash_args[3] = &ov_params.c_sw;
-
-  qpb_spinor_field z = ov_temp_vecs[15];
-
-  ov_params.g5_dslash_op(z, x, dslash_args);
-
-  qpb_spinor_axpy(y, (qpb_complex) {shift, 0.0}, x, z);
-
-  return;
-}
-
-
 void
 qpb_gamma5_sign_function_of_X_pfrac(qpb_spinor_field y, qpb_spinor_field x)
 {
@@ -468,17 +446,15 @@ qpb_preconditioner(qpb_spinor_field y, qpb_spinor_field x)
   qpb_spinor_field z = ov_temp_vecs[4];
   qpb_spinor_field w = ov_temp_vecs[5];
 
-  qpb_complex a = {1.0/rho_plus, 0.};
-  qpb_complex b = {-1.0/(rho_minus*constant_term), 0.};
+  qpb_complex a = {1.0, 0.};
+  qpb_complex b = {1.0/constant_term, 0.};
 
   // First term
-  X_op(y, x);
-  X_op_shifted(z, y, even_shifts[0]);
+  X_op(z, x);
 
   // Second term
   qpb_spinor_gamma5(y, x);
-  // qpb_even_partial_fraction_decomposition(w, y);
-  X_op_shifted(w, y, odd_shifts[0]);
+  qpb_even_partial_fraction_decomposition(w, y);
 
   qpb_spinor_axpby(y, a, z, b, w);
 
@@ -495,24 +471,26 @@ qpb_preconditioned_overlap_kl_pfrac(qpb_spinor_field y, qpb_spinor_field x)
   
   qpb_spinor_field z = ov_temp_vecs[6];
   qpb_spinor_field w = ov_temp_vecs[7];
+  qpb_spinor_field sum = ov_temp_vecs[8];
 
-  qpb_complex a = {rho_minus*constant_term/rho_plus, 0.};
-  qpb_complex b = {-rho_plus/(rho_minus*constant_term), 0.};
+  qpb_complex a = {rho_minus*constant_term, 0.};
+  qpb_complex b = {rho_plus/constant_term, 0.};
+  qpb_complex c = {rho_plus+rho_minus, 0.};
 
   // First term
-  qpb_odd_partial_fraction_decomposition(y, x);
-  D_op(z, y);
-  X_op(y, z);
-  // Shifted X operator with the second shift of the odd partial fraction expansion
-  X_op_shifted(z, y, even_shifts[0]);
-
+  qpb_odd_partial_fraction_decomposition(z, x);
+  D_op(y, z);
+  X_op(z, y);
 
   // Second term
   qpb_spinor_gamma5(y, x);
-  // qpb_even_partial_fraction_decomposition(w, y);
-  X_op_shifted(w, y, odd_shifts[0]);
+  qpb_even_partial_fraction_decomposition(w, y);
 
-  qpb_spinor_axpby(y, a, z, b, w);
+  // Add the first two terms
+  qpb_spinor_axpby(sum, a, z, b, w);
+  
+  // Add the third term
+  qpb_spinor_axpy(y, c, x, sum);
 
   return;
 }
@@ -525,24 +503,28 @@ qpb_conjugate_preconditioned_overlap_kl_pfrac(qpb_spinor_field y, qpb_spinor_fie
         Dov,m(x) = 
   */
   
-  qpb_spinor_field z = ov_temp_vecs[8];
-  qpb_spinor_field w = ov_temp_vecs[9];
+  qpb_spinor_field z = ov_temp_vecs[9];
+  qpb_spinor_field w = ov_temp_vecs[10];
+  qpb_spinor_field sum = ov_temp_vecs[11];
 
-  qpb_complex a = {rho_minus*constant_term/rho_plus, 0.};
-  qpb_complex b = {-rho_plus/(rho_minus*constant_term), 0.};
+  qpb_complex a = {rho_minus*constant_term, 0.};
+  qpb_complex b = {rho_plus/constant_term, 0.};
+  qpb_complex c = {rho_plus+rho_minus, 0.};
 
   // First term
-  X_op_shifted(y, x, even_shifts[0]);
-  D_op(z, y);
+  D_op(z, x);
   qpb_odd_partial_fraction_decomposition(y, z);
   X_op(z, y);
 
   // Second term
-  // qpb_even_partial_fraction_decomposition(y, x);
-  X_op_shifted(y, x, odd_shifts[0]);
+  qpb_even_partial_fraction_decomposition(y, x);
   qpb_spinor_gamma5(w, y);
 
-  qpb_spinor_axpby(y, a, z, b, w);
+  // Add the first two terms
+  qpb_spinor_axpby(sum, a, z, b, w);
+  
+  // Add the third term
+  qpb_spinor_axpy(y, c, x, sum);
 
   return;
 }
@@ -552,11 +534,11 @@ int
 qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b, \
                                         qpb_double CG_epsilon, int CG_max_iter)
 {
-  qpb_spinor_field p = ov_temp_vecs[10];
-  qpb_spinor_field r = ov_temp_vecs[11];
-  qpb_spinor_field y = ov_temp_vecs[12];
-  qpb_spinor_field w = ov_temp_vecs[13];
-  qpb_spinor_field bprime = ov_temp_vecs[14];
+  qpb_spinor_field p = ov_temp_vecs[12];
+  qpb_spinor_field r = ov_temp_vecs[13];
+  qpb_spinor_field y = ov_temp_vecs[14];
+  qpb_spinor_field w = ov_temp_vecs[15];
+  qpb_spinor_field bprime = ov_temp_vecs[16];
 
   int n_reeval = 100;
   int n_echo = 100;
