@@ -114,8 +114,8 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover, \
     prec_CG_epsilon = 1e-4;
     prec_CG_max_iter = 10000;
 
-    print(" Preconditioner solver epsilon = %e", prec_CG_epsilon);
-    print(" Preconditioner solver max iterations = %d", prec_CG_max_iter);
+    print(" Preconditioner solver epsilon = %e\n", prec_CG_epsilon);
+    print(" Preconditioner solver max iterations = %d\n", prec_CG_max_iter);
 
     /* Calculate the numerical terms of the partial fraction expansion */
     shifts = qpb_alloc(sizeof(qpb_double)*KL_diagonal_order);
@@ -294,8 +294,7 @@ qpb_conjugate_overlap_kl_pfrac(qpb_spinor_field y, qpb_spinor_field x)
 
 
 int
-qpb_preconditioner_CG(qpb_spinor_field x, qpb_spinor_field b,
-                      qpb_double prec_CG_epsilon, int prec_CG_max_iter)
+qpb_preconditioner_CG(qpb_spinor_field x, qpb_spinor_field b)
 {
   qpb_spinor_field p = ov_temp_vecs[4];
   qpb_spinor_field r = ov_temp_vecs[5];
@@ -414,8 +413,8 @@ qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b,
   qpb_spinor_field s = ov_temp_vecs[15];
 
   int n_reeval = 100;
-  int n_echo   = 100;
-  int iters    = 0;
+  int n_echo = 100;
+  int iters = 0;
 
   qpb_double res_norm, true_res_norm, b_norm, bprime_norm;
   qpb_complex_double alpha = {1, 0}, omega = {1, 0};
@@ -437,7 +436,7 @@ qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b,
   qpb_spinor_xeqy(z, bprime);
 
   /* Solve M·s0 = z0 for s0 */
-  qpb_preconditioner_CG(s, z, prec_CG_epsilon, prec_CG_max_iter);
+  qpb_preconditioner_CG(s, z);
 
   /* gamma_0 = z0†·s0  (real by HPD of M; take .re explicitly) */
   qpb_spinor_xdoty(&gamma, z, s);
@@ -483,7 +482,7 @@ qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b,
     }
 
     /* Solve M·s = z  (one preconditioner application per outer iteration) */
-    qpb_preconditioner_CG(s, z, prec_CG_epsilon, prec_CG_max_iter);
+    qpb_preconditioner_CG(s, z);
 
     /* new_gamma = z†·s  (real by HPD of M; take .re explicitly) */
     qpb_spinor_xdoty(&new_gamma, z, s);
