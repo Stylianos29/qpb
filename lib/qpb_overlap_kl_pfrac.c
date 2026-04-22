@@ -396,7 +396,7 @@ qpb_preconditioner_CG(qpb_spinor_field x, qpb_spinor_field b)
   qpb_spinor_field_set_zero(x);
 
   /* r0 = b,  z0 = b'  (exact since x0 = 0) */
-  qpb_spinor_xeqy(r, b);
+  qpb_spinor_xeqy(r, b_modified);
   qpb_spinor_xeqy(z, bprime);
 
   /* gamma_0 = ||z0||^2 */
@@ -459,7 +459,7 @@ qpb_preconditioner_CG(qpb_spinor_field x, qpb_spinor_field b)
 
     qpb_spinor_xdotx(&true_res_norm, r);
     if((iters % n_echo == 0))
-      print(" \t iters = %8d, res = %.15e\n", iters, true_res_norm / b_norm);
+      print(" \t preconditioner CG iters = %8d, res = %.15e\n", iters, true_res_norm / b_norm);
   }
 
   /* Silent non-convergence: return -1 so the caller can decide
