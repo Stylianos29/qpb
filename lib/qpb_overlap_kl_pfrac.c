@@ -215,117 +215,93 @@ Dconj_toy_op(qpb_spinor_field y, qpb_spinor_field x)
 
 
 /* ================================================================
-   Inner solver: unpreconditioned CGNE for  D_toy · x = b
-   Solves the normal equations  D†_toy · D_toy · x = D†_toy · b.
+   Inner solver:  STANDARD CG for the HPD system  D†D · s = b
 
-   This is the function that acts as the preconditioner for the outer
-   loop.  It is called once per outer iteration with z (the outer
-   CGNE residual) as right-hand side.  The looser its tolerance, the
-   cheaper it is — but making it too loose will stall the outer loop
-   (see Section 9.4 of Saad on flexible variants).
+   This is the correct way to compute  s = (D†D)^{-1} b.
+   Because D†D is Hermitian positive-definite, standard CG applies
+   directly.  All scalars are real.  No CGNE structure here.
 
-   Silent: no print statements.  Returns iteration count or -1.
+   Stopping criterion:  ||r||^2 / ||b||^2 <= epsilon^2,
+   where r = b - D†D·s is the residual of the HPD system.
 
-   Temp slots used: [1..6]
-     [1] r      residual of original system  b - D_toy·x
-     [2] p      search direction             (= z_0 initially)
-     [3] z      normal-equations residual    D†_toy · r
-     [4] w      D_toy · p
-     [5] y      D†_toy · w  = (D†D) · p
-     [6] bprime D†_toy · b
+   Cost per iteration: one D_toy_op + one Dconj_toy_op (2 dslashes).
+   Silent.  Returns iteration count, or -1 on non-convergence.
+
+   Temp slots: [1..4]
+     [1]  r   HPD residual  b - D†D·s
+     [2]  p   search direction
+     [3]  w   D_toy · p          (intermediate for D†D·p)
+     [4]  y   D†D · p
    ================================================================ */
 int
-qpb_toy_inner_CG(qpb_spinor_field x, qpb_spinor_field b,
+qpb_toy_inner_CG(qpb_spinor_field s, qpb_spinor_field b,
                  qpb_double epsilon, int max_iter)
 {
-  qpb_spinor_field r      = toy_temp_vecs[1];
-  qpb_spinor_field p      = toy_temp_vecs[2];
-  qpb_spinor_field z      = toy_temp_vecs[3];
-  qpb_spinor_field w      = toy_temp_vecs[4];
-  qpb_spinor_field y      = toy_temp_vecs[5];
-  qpb_spinor_field bprime = toy_temp_vecs[6];
+  qpb_spinor_field r = toy_temp_vecs[1];
+  qpb_spinor_field p = toy_temp_vecs[2];
+  qpb_spinor_field w = toy_temp_vecs[3];
+  qpb_spinor_field y = toy_temp_vecs[4];
 
-  int n_reeval = 100;
-  int iters    = 0;
+  int iters = 0;
 
-  qpb_double res_norm, true_res_norm, b_norm, bprime_norm;
-  qpb_complex_double alpha = {1, 0}, omega = {1, 0};
-  qpb_complex_double beta, gamma;
+  /* All scalars are real -- D†D is HPD */
+  qpb_double b_norm, res_norm, new_res_norm, omega, alpha, beta;
 
-  /* ||b||  – denominator for stopping criterion */
+  /* ||b||^2 */
   qpb_spinor_xdotx(&b_norm, b);
-  true_res_norm = b_norm;
 
-  /* bprime = D†_toy · b */
-  Dconj_toy_op(bprime, b);
-  qpb_spinor_xdotx(&bprime_norm, bprime);
-
-  /* x0 = 0 */
-  qpb_spinor_field_set_zero(x);
-
-  /* r0 = b  (exact since x0 = 0),  z0 = bprime */
+  /* s0 = 0,  r0 = b */
+  qpb_spinor_field_set_zero(s);
   qpb_spinor_xeqy(r, b);
-  qpb_spinor_xeqy(z, bprime);
 
-  /* gamma_0 = ||z0||^2  (real, positive) */
-  qpb_spinor_xdotx(&gamma.re, z);
-  gamma.im = 0.;
+  /* gamma_0 = ||r0||^2 */
+  qpb_spinor_xdotx(&res_norm, r);
 
-  /* p0 = z0 */
-  qpb_spinor_xeqy(p, z);
+  /* p0 = r0 */
+  qpb_spinor_xeqy(p, r);
 
   for(iters = 1; iters < max_iter; iters++)
   {
-    /* Stopping criterion on true residual of original system D_toy·x = b */
-    if(true_res_norm / b_norm <= epsilon)
+    /* Stopping on relative residual of the HPD system:
+       ||r||^2 / ||b||^2 <= epsilon^2   (squaring avoids a sqrt) */
+    if(res_norm / b_norm <= epsilon * epsilon)
       break;
 
-    /* w = D_toy · p */
+    /* Apply D†D to p: w = D·p,  y = D†·w = D†D·p */
     D_toy_op(w, p);
-    /* y = D†_toy · w = (D†D_toy) · p */
     Dconj_toy_op(y, w);
 
-    /* omega = p† · (D†D) · p = ||D·p||^2 = ||w||^2  (real, positive) */
-    qpb_spinor_xdoty(&omega, p, y);
+    /* omega = p†·D†D·p = ||D·p||^2 = ||w||^2  (real, positive) */
+    qpb_spinor_xdotx(&omega, w);
 
-    /* alpha = gamma / omega */
-    alpha = CDEV(gamma, omega);
+    /* alpha = ||r||^2 / (p†·D†D·p)  (real, positive) */
+    alpha = res_norm / omega;
 
-    /* x += alpha · p */
-    qpb_spinor_axpy(x, alpha, p, x);
-
-    /* Update r and z */
-    if(iters % n_reeval == 0)
+    /* s += alpha·p */
     {
-      /* Full recomputation to suppress round-off accumulation */
-      D_toy_op(w, x);
-      qpb_spinor_xmy(r, b, w);
-      Dconj_toy_op(y, w);
-      qpb_spinor_xmy(z, bprime, y);
-    }
-    else
-    {
-      /* Recursive update */
-      alpha.re = -CDEVR(gamma, omega);
-      alpha.im = -CDEVI(gamma, omega);
-      qpb_spinor_axpy(r, alpha, w, r);   /* r -= alpha · D_toy · p  */
-      qpb_spinor_axpy(z, alpha, y, z);   /* z -= alpha · D†D · p    */
+      qpb_complex_double a = {alpha, 0.};
+      qpb_spinor_axpy(s, a, p, s);
     }
 
-    /* res_norm = ||z_{k+1}||^2  (real, positive) */
-    qpb_spinor_xdotx(&res_norm, z);
+    /* r -= alpha·D†D·p = alpha·y */
+    {
+      qpb_complex_double a = {-alpha, 0.};
+      qpb_spinor_axpy(r, a, y, r);
+    }
 
-    /* beta = ||z_{k+1}||^2 / ||z_k||^2  (real) */
-    beta.re = res_norm / gamma.re;
-    beta.im = 0.;
+    /* new_res_norm = ||r_{k+1}||^2 */
+    qpb_spinor_xdotx(&new_res_norm, r);
 
-    /* p_{k+1} = z_{k+1} + beta · p_k */
-    qpb_spinor_axpy(p, beta, p, z);
+    /* beta = ||r_{k+1}||^2 / ||r_k||^2 */
+    beta = new_res_norm / res_norm;
 
-    gamma.re = res_norm;
-    gamma.im = 0.;
+    /* p_{k+1} = r_{k+1} + beta·p_k */
+    {
+      qpb_complex_double b_c = {beta, 0.};
+      qpb_spinor_axpy(p, b_c, p, r);
+    }
 
-    qpb_spinor_xdotx(&true_res_norm, r);
+    res_norm = new_res_norm;
   }
 
   if(iters == max_iter)
