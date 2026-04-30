@@ -29,6 +29,7 @@ static int KL_diagonal_order;
 static qpb_double MS_solver_precision;
 static int MS_maximum_solver_iterations;
 
+static qpb_double preconditioner_mass;
 static qpb_double prec_CG_epsilon;
 static int prec_CG_max_iter;
 
@@ -41,7 +42,8 @@ void
 qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover, \
           enum qpb_kl_classes kl_class, int kl_iters, qpb_double rho, \
           qpb_double c_sw, qpb_double mass, qpb_double scaling_factor, \
-          qpb_double ms_epsilon, int ms_max_iter)
+          qpb_double ms_epsilon, int ms_max_iters,
+          qpb_double prec_mass, qpb_double prec_epsilon, int prec_max_iters)
 {
   if(ov_params.initialized != QPB_OVERLAP_INITIALIZED)
   {
@@ -109,10 +111,11 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover, \
 
     KL_diagonal_order = kl_iters;
     MS_solver_precision = ms_epsilon;
-    MS_maximum_solver_iterations = ms_max_iter;
+    MS_maximum_solver_iterations = ms_max_iters;
 
-    prec_CG_epsilon = 1e-4;
-    prec_CG_max_iter = 10000;
+    prec_CG_epsilon = prec_epsilon;
+    prec_CG_max_iter = prec_max_iters;
+    preconditioner_mass = prec_mass;
 
     print(" Preconditioner solver epsilon = %e\n", prec_CG_epsilon);
     print(" Preconditioner solver max iterations = %d\n", prec_CG_max_iter);
@@ -200,14 +203,14 @@ M_op(qpb_spinor_field y, qpb_spinor_field x)
 
   qpb_spinor_field w = ov_temp_vecs[0];
 
-  qpb_double overlap_mass = ov_params.mass;
+  // qpb_double overlap_mass = ov_params.mass;
   qpb_double rho = ov_params.rho;
 
-  qpb_complex preconditioner_mass = {rho + overlap_mass, 0.};
+  qpb_complex preconditioner_shift = {rho + preconditioner_mass, 0.};
   
   D_op(w, x);
 
-  qpb_spinor_axpy(y, preconditioner_mass, x, w);
+  qpb_spinor_axpy(y, preconditioner_shift, x, w);
   
   return;
 }

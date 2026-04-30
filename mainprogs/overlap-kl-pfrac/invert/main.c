@@ -605,6 +605,37 @@ main(int argc, char *argv[])
 	    "Inner solver max iters");
       exit(QPB_PARSER_ERROR);
     }
+  qpb_double prec_mass;
+  if(sscanf(qpb_parse("Preconditioner mass"), "%lf", &prec_mass)!=1)
+    {
+      error("error parsing for %s\n",
+	    "Preconditioner mass");
+      exit(QPB_PARSER_ERROR);
+    }
+  qpb_double prec_epsilon;
+  if(sscanf(qpb_parse("Preconditioner epsilon"), "%lf", &prec_epsilon)!=1)
+    {
+      error("error parsing for %s\n",
+	    "Preconditioner epsilon");
+      exit(QPB_PARSER_ERROR);
+    }
+  if(prec_epsilon <= 0)
+    {
+      error("only provide positive values for Preconditioner epsilon, quitting\n");
+      exit(QPB_PARAMETERS_ERROR);
+    }
+  int prec_max_iters;
+  if(sscanf(qpb_parse("Preconditioner max iters"), "%d", &prec_max_iters)!=1)
+    {
+      error("error parsing for %s\n",
+	    "Preconditioner max iters");
+      exit(QPB_PARSER_ERROR);
+    }
+  if(prec_max_iters < 1)
+    {
+      error("only provide positive integer values for Preconditioner max iters, quitting\n");
+      exit(QPB_PARAMETERS_ERROR);
+    }
   char sol_file[QPB_MAX_STRING];
   if(sscanf(qpb_parse("Solution file"), "%s", sol_file)!=1)
     {
@@ -759,6 +790,9 @@ main(int argc, char *argv[])
   print(" Outer max solver iters = %d\n", outer_max_iters);
   print(" Inner solver epsilon = %e\n", ms_epsilon);
   print(" Inner max solver iters = %d\n", ms_max_iters);
+  print(" Preconditioner mass = %.6f\n", prec_mass);
+  print(" Preconditioner epsilon = %e\n", prec_epsilon);
+  print(" Preconditioner max iters = %d\n", prec_max_iters);
   qpb_rng_init(seed);
   problem_params.timebc = timebc;
 
@@ -960,7 +994,8 @@ main(int argc, char *argv[])
   qpb_double t = qpb_stop_watch(0);
 
   qpb_overlap_kl_pfrac_init(solver_arg_links, clover_term, kl_class, kl_iters, \
-                    rho, c_sw, mass, scaling_factor, ms_epsilon, ms_max_iters);
+                    rho, c_sw, mass, scaling_factor, ms_epsilon, ms_max_iters, \
+                    prec_mass, prec_epsilon, prec_max_iters);
 n_spinors=1;
   for(int i=0; i<n_spinors; i++)
   {
