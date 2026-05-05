@@ -117,9 +117,6 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover, \
     prec_CG_max_iter = prec_max_iters;
     preconditioner_mass = prec_mass;
 
-    print(" Preconditioner solver epsilon = %e\n", prec_CG_epsilon);
-    print(" Preconditioner solver max iterations = %d\n", prec_CG_max_iter);
-
     /* Calculate the numerical terms of the partial fraction expansion */
     shifts = qpb_alloc(sizeof(qpb_double)*KL_diagonal_order);
     numerators = qpb_alloc(sizeof(qpb_double)*KL_diagonal_order);
@@ -413,8 +410,11 @@ qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b,
   qpb_spinor_xeqy(r, b);
   qpb_spinor_xeqy(z, bprime);
 
-  /* Solve M·s0 = z0 for s0 */
-  qpb_preconditioner_CG(s, z);
+  /* Solve M·s0 = z0 for s0 (or copy if no preconditioning) */
+  if(prec_CG_max_iter == 0)
+    qpb_spinor_xeqy(s, z);
+  else
+    qpb_preconditioner_CG(s, z);
 
   /* gamma_0 = z0†·s0  (real by HPD of M; take .re explicitly) */
   qpb_spinor_xdoty(&gamma, z, s);
@@ -459,8 +459,11 @@ qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b,
       qpb_spinor_axpy(z, alpha, y, z);   /* z -= alpha·(A·p)    */
     }
 
-    /* Solve M·s = z  (one preconditioner application per outer iteration) */
-    qpb_preconditioner_CG(s, z);
+    /* Solve M·s = z for s (or copy if no preconditioning) */
+    if(prec_CG_max_iter == 0)
+      qpb_spinor_xeqy(s, z);
+    else
+      qpb_preconditioner_CG(s, z);
 
     /* new_gamma = z†·s  (real by HPD of M; take .re explicitly) */
     qpb_spinor_xdoty(&new_gamma, z, s);
