@@ -203,11 +203,12 @@ M_op(qpb_spinor_field y, qpb_spinor_field x)
   // qpb_double overlap_mass = ov_params.mass;
   qpb_double rho = ov_params.rho;
 
-  qpb_complex preconditioner_shift = {rho + preconditioner_mass, 0.};
+  qpb_complex preconditioner_center = {rho + 0.5*preconditioner_mass, 0.};
+  qpb_complex preconditioner_radius = {rho - 0.5*preconditioner_mass, 0.};
   
   D_op(w, x);
 
-  qpb_spinor_axpy(y, preconditioner_shift, x, w);
+  qpb_spinor_axpby(y, preconditioner_center, x, preconditioner_radius, w);
   
   return;
 }
