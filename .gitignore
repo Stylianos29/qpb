@@ -48,9 +48,7 @@ mainprogs/*/*/test.txt
 mainprogs/*/*/test.err
 
 **/runner/
-
-*/*/qpb_parameters_scan_files/
-*/*/*/qpb_parameters_scan_files/
+**/qpb_parameters_scan_files/
 
 */mesons/batch_processing_invert_solutions/*
 */*/mesons/batch_processing_invert_solutions/*
