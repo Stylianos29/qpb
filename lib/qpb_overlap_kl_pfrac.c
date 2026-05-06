@@ -16,7 +16,7 @@
 #include <math.h>
 
 
-#define OVERLAP_NUMB_TEMP_VECS 16
+#define OVERLAP_NUMB_TEMP_VECS 21
 #define MSCG_NUMB_TEMP_VECS 20
 
 
@@ -193,22 +193,70 @@ D_op(qpb_spinor_field y, qpb_spinor_field x)
 
 
 INLINE void
+X_op(qpb_spinor_field y, qpb_spinor_field x)
+{
+  /* Implements: X ≡ γ5(a*D - ρ) . */
+
+  void *dslash_args[4];
+
+  dslash_args[0] = ov_params.gauge_ptr;
+  dslash_args[1] = &ov_params.m_bare;
+  dslash_args[2] = &ov_params.clover;
+  dslash_args[3] = &ov_params.c_sw;
+
+  ov_params.g5_dslash_op(y, x, dslash_args);
+
+  return;
+}
+
+
+INLINE void
+X2_shifted_op(qpb_spinor_field y, qpb_spinor_field x, qpb_double shift)
+{
+  /* Implements: X^2 + shift . */
+
+  qpb_spinor_field z = ov_temp_vecs[0];
+
+  void *dslash_args[4];
+
+  dslash_args[0] = ov_params.gauge_ptr;
+  dslash_args[1] = &ov_params.m_bare;
+  dslash_args[2] = &ov_params.clover;
+  dslash_args[3] = &ov_params.c_sw;
+
+  ov_params.g5_dslash_op(y, x, dslash_args);
+  ov_params.g5_dslash_op(z, y, dslash_args);
+
+  qpb_spinor_axpy(y, (qpb_complex) {shift, 0.0}, x, z);
+
+  return;
+}
+
+
+INLINE void
 M_op(qpb_spinor_field y, qpb_spinor_field x)
 {
+  /* Implements: M = 3*c*(X^2+1/3) + r*γ5.X(X^2+3) ,
+      with c = ρ + a*m/2, the preconditioner centerand, and
+      r = ρ - a*m/2, the preconditioner radius. */
 
-  // /* Implement M =   */ 
-
-  qpb_spinor_field w = ov_temp_vecs[0];
+  qpb_spinor_field z = ov_temp_vecs[1];
+  qpb_spinor_field w = ov_temp_vecs[2];
 
   // qpb_double overlap_mass = ov_params.mass;
   qpb_double rho = ov_params.rho;
 
-  qpb_complex preconditioner_center = {rho + 0.5*preconditioner_mass, 0.};
-  qpb_complex preconditioner_radius = {rho - 0.5*preconditioner_mass, 0.};
-  
-  D_op(w, x);
+  qpb_complex three_times_c = {3*(rho + 0.5*preconditioner_mass), 0.};
+  qpb_complex r = {rho - 0.5*preconditioner_mass, 0.};
 
-  qpb_spinor_axpby(y, preconditioner_center, x, preconditioner_radius, w);
+  // Part 1
+  X2_shifted_op(z, x, 1.0/3.0);
+
+  // Part 2
+  X2_shifted_op(y, x, 3.0);
+  D_op(w, y); // γ5.X
+
+  qpb_spinor_axpby(y, three_times_c, z, r, w);
   
   return;
 }
@@ -217,13 +265,29 @@ M_op(qpb_spinor_field y, qpb_spinor_field x)
 INLINE void
 M_conj_op(qpb_spinor_field y, qpb_spinor_field x)
 {
+  /* Implements: M = 3*c*(X^2+1/3) + r*X(X^2+3)γ5 ,
+      with c = ρ + a*m/2, the preconditioner centerand, and
+      r = ρ - a*m/2, the preconditioner radius. */
 
-  qpb_spinor_field z = ov_temp_vecs[1];
+  qpb_spinor_field z = ov_temp_vecs[3];
+  qpb_spinor_field w = ov_temp_vecs[4];
 
-  qpb_spinor_gamma5(y, x);
-  M_op(z, y);
-  qpb_spinor_gamma5(y, z);
+  // qpb_double overlap_mass = ov_params.mass;
+  qpb_double rho = ov_params.rho;
 
+  qpb_complex three_times_c = {3*(rho + 0.5*preconditioner_mass), 0.};
+  qpb_complex r = {rho - 0.5*preconditioner_mass, 0.};
+
+  // Part 1
+  X2_shifted_op(z, x, 1.0/3.0);
+  
+  // Part 2
+  qpb_spinor_gamma5(w, x);
+  X2_shifted_op(y, w, 3.0);
+  X_op(w, y);
+
+  qpb_spinor_axpby(y, three_times_c, z, r, w);
+  
   return;
 }
 
@@ -234,7 +298,7 @@ qpb_gamma5_sign_function_of_X_pfrac(qpb_spinor_field y, qpb_spinor_field x)
   /* Implements: γ5(sign(X(x))) = γ5(X(c_0 + Sum_{i=1}^{n} c_i/(X^2+σ_i) )),
       with X(x) = γ5(D(x) - ρ*x) . */
 
-  qpb_spinor_field sum = ov_temp_vecs[2];
+  qpb_spinor_field sum = ov_temp_vecs[5];
 
   qpb_spinor_field yMS[KL_diagonal_order];
   for(int sigma=0; sigma<KL_diagonal_order; sigma++)
@@ -270,7 +334,7 @@ qpb_overlap_kl_pfrac(qpb_spinor_field y, qpb_spinor_field x)
         Dov,m(x) = (rho+overlap_mass/2)*x + (rho-overlap_mass/2)*g5(sign(X))
   */
   
-  qpb_spinor_field z = ov_temp_vecs[3];
+  qpb_spinor_field z = ov_temp_vecs[6];
 
   qpb_double overlap_mass = ov_params.mass;
   qpb_double rho = ov_params.rho;
@@ -289,7 +353,7 @@ qpb_overlap_kl_pfrac(qpb_spinor_field y, qpb_spinor_field x)
 void
 qpb_conjugate_overlap_kl_pfrac(qpb_spinor_field y, qpb_spinor_field x)
 {
-  qpb_spinor_field z = ov_temp_vecs[4];
+  qpb_spinor_field z = ov_temp_vecs[7];
 
   qpb_spinor_gamma5(y, x);
   qpb_overlap_kl_pfrac(z, y);
@@ -300,24 +364,32 @@ qpb_conjugate_overlap_kl_pfrac(qpb_spinor_field y, qpb_spinor_field x)
 
 
 int
-qpb_preconditioner_CG(qpb_spinor_field s, qpb_spinor_field b)
+qpb_preconditioner_CG(qpb_spinor_field x, qpb_spinor_field b)
 {
-  qpb_spinor_field r = ov_temp_vecs[5];
-  qpb_spinor_field p = ov_temp_vecs[6];
-  qpb_spinor_field w = ov_temp_vecs[7];
-  qpb_spinor_field y = ov_temp_vecs[8];
+  qpb_spinor_field r = ov_temp_vecs[8];
+  qpb_spinor_field p = ov_temp_vecs[9];
+  qpb_spinor_field w = ov_temp_vecs[10];
+  qpb_spinor_field y = ov_temp_vecs[11];
+  qpb_spinor_field bprime = ov_temp_vecs[12];
+  qpb_spinor_field s = ov_temp_vecs[13];
+
 
   int iters = 0;
 
   /* All scalars are real -- D†D is HPD */
-  qpb_double b_norm, res_norm, new_res_norm, omega, alpha, beta;
+  qpb_double b_norm, b_prime_norm, res_norm, new_res_norm, omega, alpha, beta;
 
   /* ||b||^2 */
   qpb_spinor_xdotx(&b_norm, b);
 
-  /* s0 = 0,  r0 = b */
+  /* b_prime = 3(X^2+1/3) b */ 
+  X2_shifted_op(w, b, 1.0/3.0);
+  qpb_spinor_ax(bprime, (qpb_complex) {3.0, 0.0}, w);
+
+  /* s0 = 0,  r0 = b_prime */
   qpb_spinor_field_set_zero(s);
-  qpb_spinor_xeqy(r, b);
+  qpb_spinor_xeqy(r, bprime);
+  qpb_spinor_xdotx(&b_prime_norm, bprime);
 
   /* gamma_0 = ||r0||^2 */
   qpb_spinor_xdotx(&res_norm, r);
@@ -329,7 +401,7 @@ qpb_preconditioner_CG(qpb_spinor_field s, qpb_spinor_field b)
   {
     /* Stopping on relative residual of the HPD system:
        ||r||^2 / ||b||^2 <= prec_CG_epsilon^2   (squaring avoids a sqrt) */
-    if(res_norm / b_norm <= prec_CG_epsilon * prec_CG_epsilon)
+    if(res_norm / b_prime_norm <= prec_CG_epsilon * prec_CG_epsilon)
       break;
 
     /* Apply D†D to p: w = D·p,  y = D†·w = D†D·p */
@@ -344,13 +416,13 @@ qpb_preconditioner_CG(qpb_spinor_field s, qpb_spinor_field b)
 
     /* s += alpha·p */
     {
-      qpb_complex_double a = {alpha, 0.};
+      qpb_complex a = {alpha, 0.};
       qpb_spinor_axpy(s, a, p, s);
     }
 
     /* r -= alpha·D†D·p = alpha·y */
     {
-      qpb_complex_double a = {-alpha, 0.};
+      qpb_complex a = {-alpha, 0.};
       qpb_spinor_axpy(r, a, y, r);
     }
 
@@ -362,12 +434,15 @@ qpb_preconditioner_CG(qpb_spinor_field s, qpb_spinor_field b)
 
     /* p_{k+1} = r_{k+1} + beta·p_k */
     {
-      qpb_complex_double b_c = {beta, 0.};
+      qpb_complex b_c = {beta, 0.};
       qpb_spinor_axpy(p, b_c, p, r);
     }
 
     res_norm = new_res_norm;
   }
+
+  X2_shifted_op(y, s, 1.0/3.0);
+  qpb_spinor_ax(x, (qpb_complex) {3.0, 0.0}, y);
 
   if(iters == prec_CG_max_iter)
     return -1;
@@ -380,21 +455,21 @@ int
 qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b,
                                         qpb_double CG_epsilon, int CG_max_iter)
 {
-  qpb_spinor_field p = ov_temp_vecs[9];
-  qpb_spinor_field r = ov_temp_vecs[10];
-  qpb_spinor_field z = ov_temp_vecs[11];
-  qpb_spinor_field y = ov_temp_vecs[12];
-  qpb_spinor_field w = ov_temp_vecs[13];
-  qpb_spinor_field bprime = ov_temp_vecs[14];
-  qpb_spinor_field s = ov_temp_vecs[15];
+  qpb_spinor_field p = ov_temp_vecs[14];
+  qpb_spinor_field r = ov_temp_vecs[15];
+  qpb_spinor_field z = ov_temp_vecs[16];
+  qpb_spinor_field y = ov_temp_vecs[17];
+  qpb_spinor_field w = ov_temp_vecs[18];
+  qpb_spinor_field bprime = ov_temp_vecs[19];
+  qpb_spinor_field s = ov_temp_vecs[20];
 
   int n_reeval = 100;
   int n_echo = 100;
   int iters = 0;
 
   qpb_double res_norm, true_res_norm, b_norm, bprime_norm;
-  qpb_complex_double alpha = {1, 0}, omega = {1, 0};
-  qpb_complex_double beta, gamma, new_gamma;
+  qpb_complex alpha = {1, 0}, omega = {1, 0};
+  qpb_complex beta, gamma, new_gamma;
 
   /* ||b||^2 */
   qpb_spinor_xdotx(&b_norm, b);
