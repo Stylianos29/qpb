@@ -17,7 +17,7 @@
 
 
 #define OVERLAP_NUMB_TEMP_VECS 21
-#define MSCG_NUMB_TEMP_VECS 20
+#define MSCG_NUMB_TEMP_VECS 37
 
 
 static qpb_spinor_field ov_temp_vecs[OVERLAP_NUMB_TEMP_VECS];
@@ -301,8 +301,8 @@ M_nonsq_op(qpb_spinor_field y, qpb_spinor_field x)
      This avoids the squaring (M†M) needed in the CG path, since BiCGStab
      handles non-Hermitian systems directly. */
 
-  qpb_spinor_field z = ov_temp_vecs[1];
-  qpb_spinor_field w = ov_temp_vecs[2];
+  qpb_spinor_field z = ov_temp_vecs[5];
+  qpb_spinor_field w = ov_temp_vecs[6];
 
   qpb_double rho = ov_params.rho;
 
@@ -331,7 +331,7 @@ qpb_gamma5_sign_function_of_X_pfrac(qpb_spinor_field y, qpb_spinor_field x)
   /* Implements: γ5(sign(X(x))) = γ5(X(c_0 + Sum_{i=1}^{n} c_i/(X^2+σ_i) )),
       with X(x) = γ5(D(x) - ρ*x) . */
 
-  qpb_spinor_field sum = ov_temp_vecs[5];
+  qpb_spinor_field sum = ov_temp_vecs[7];
 
   qpb_spinor_field yMS[KL_diagonal_order];
   for(int sigma=0; sigma<KL_diagonal_order; sigma++)
@@ -367,7 +367,7 @@ qpb_overlap_kl_pfrac(qpb_spinor_field y, qpb_spinor_field x)
         Dov,m(x) = (rho+overlap_mass/2)*x + (rho-overlap_mass/2)*g5(sign(X))
   */
   
-  qpb_spinor_field z = ov_temp_vecs[6];
+  qpb_spinor_field z = ov_temp_vecs[8];
 
   qpb_double overlap_mass = ov_params.mass;
   qpb_double rho = ov_params.rho;
@@ -386,7 +386,7 @@ qpb_overlap_kl_pfrac(qpb_spinor_field y, qpb_spinor_field x)
 void
 qpb_conjugate_overlap_kl_pfrac(qpb_spinor_field y, qpb_spinor_field x)
 {
-  qpb_spinor_field z = ov_temp_vecs[7];
+  qpb_spinor_field z = ov_temp_vecs[9];
 
   qpb_spinor_gamma5(y, x);
   qpb_overlap_kl_pfrac(z, y);
@@ -399,12 +399,12 @@ qpb_conjugate_overlap_kl_pfrac(qpb_spinor_field y, qpb_spinor_field x)
 int
 qpb_preconditioner_CG(qpb_spinor_field x, qpb_spinor_field b)
 {
-  qpb_spinor_field r = ov_temp_vecs[8];
-  qpb_spinor_field p = ov_temp_vecs[9];
-  qpb_spinor_field w = ov_temp_vecs[10];
-  qpb_spinor_field y = ov_temp_vecs[11];
-  qpb_spinor_field bprime = ov_temp_vecs[12];
-  qpb_spinor_field s = ov_temp_vecs[13];
+  qpb_spinor_field r = ov_temp_vecs[10];
+  qpb_spinor_field p = ov_temp_vecs[11];
+  qpb_spinor_field w = ov_temp_vecs[12];
+  qpb_spinor_field y = ov_temp_vecs[13];
+  qpb_spinor_field bprime = ov_temp_vecs[14];
+  qpb_spinor_field s = ov_temp_vecs[15];
 
 
   int iters = 0;
@@ -495,13 +495,13 @@ qpb_preconditioner_bicgstab(qpb_spinor_field x, qpb_spinor_field b)
      no longer need D†D, there is no squaring — one fewer operator application
      per inner iteration. */
 
-  qpb_spinor_field r0_hat = ov_temp_vecs[8];
-  qpb_spinor_field r      = ov_temp_vecs[9];
-  qpb_spinor_field p      = ov_temp_vecs[10];
-  qpb_spinor_field u      = ov_temp_vecs[11];
-  qpb_spinor_field v      = ov_temp_vecs[12];
-  qpb_spinor_field bprime = ov_temp_vecs[13];
-  qpb_spinor_field tmp    = ov_temp_vecs[3]; /* scratch for b' computation */
+  qpb_spinor_field r0_hat = ov_temp_vecs[16];
+  qpb_spinor_field r      = ov_temp_vecs[17];
+  qpb_spinor_field p      = ov_temp_vecs[18];
+  qpb_spinor_field u      = ov_temp_vecs[19];
+  qpb_spinor_field v      = ov_temp_vecs[20];
+  qpb_spinor_field bprime = ov_temp_vecs[21];
+  qpb_spinor_field tmp    = ov_temp_vecs[22]; /* scratch for b' computation */
 
   int iters = 0;
   const int n_reeval = 10;
@@ -602,13 +602,13 @@ int
 qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b,
                                         qpb_double CG_epsilon, int CG_max_iter)
 {
-  qpb_spinor_field p = ov_temp_vecs[14];
-  qpb_spinor_field r = ov_temp_vecs[15];
-  qpb_spinor_field z = ov_temp_vecs[16];
-  qpb_spinor_field y = ov_temp_vecs[17];
-  qpb_spinor_field w = ov_temp_vecs[18];
-  qpb_spinor_field bprime = ov_temp_vecs[19];
-  qpb_spinor_field s = ov_temp_vecs[20];
+  qpb_spinor_field p = ov_temp_vecs[23];
+  qpb_spinor_field r = ov_temp_vecs[24];
+  qpb_spinor_field z = ov_temp_vecs[25];
+  qpb_spinor_field y = ov_temp_vecs[26];
+  qpb_spinor_field w = ov_temp_vecs[27];
+  qpb_spinor_field bprime = ov_temp_vecs[28];
+  qpb_spinor_field s = ov_temp_vecs[29];
 
   int n_reeval = 100;
   int n_echo = 100;
@@ -746,13 +746,13 @@ qpb_bicgstab_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b,
 
      If prec_CG_max_iter == 0, no preconditioning is used (K = I). */
 
-  qpb_spinor_field r0_hat = ov_temp_vecs[14];
-  qpb_spinor_field r      = ov_temp_vecs[15];
-  qpb_spinor_field p      = ov_temp_vecs[16];
-  qpb_spinor_field u      = ov_temp_vecs[17];   /* A·y  or  A·p (unprec) */
-  qpb_spinor_field v      = ov_temp_vecs[18];   /* A·z  or  A·s (unprec) */
-  qpb_spinor_field y      = ov_temp_vecs[19];   /* K^{-1}·p              */
-  qpb_spinor_field z_vec  = ov_temp_vecs[20];   /* K^{-1}·s              */
+  qpb_spinor_field r0_hat = ov_temp_vecs[30];
+  qpb_spinor_field r      = ov_temp_vecs[31];
+  qpb_spinor_field p      = ov_temp_vecs[32];
+  qpb_spinor_field u      = ov_temp_vecs[33];   /* A·y  or  A·p (unprec) */
+  qpb_spinor_field v      = ov_temp_vecs[34];   /* A·z  or  A·s (unprec) */
+  qpb_spinor_field y      = ov_temp_vecs[35];   /* K^{-1}·p              */
+  qpb_spinor_field z_vec  = ov_temp_vecs[36];   /* K^{-1}·s              */
 
   int n_reeval = 100;
   int n_echo = 100;
