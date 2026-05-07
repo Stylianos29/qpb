@@ -590,6 +590,10 @@ qpb_preconditioner_bicgstab(qpb_spinor_field x, qpb_spinor_field b)
   if(iters == prec_CG_max_iter)
     return -1;
 
+  print(" \tAfter %d iters, preconditioner solver converged, res = %e, "
+        "relative = %e, t = %g sec\n",
+        iters, res_norm, res_norm / bprime_norm, t);
+
   return iters;
 }
 
