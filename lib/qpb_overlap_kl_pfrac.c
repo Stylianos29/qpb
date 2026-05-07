@@ -292,6 +292,39 @@ M_conj_op(qpb_spinor_field y, qpb_spinor_field x)
 }
 
 
+INLINE void
+M_nonsq_op(qpb_spinor_field y, qpb_spinor_field x)
+{
+  /* Implements the non-squared multiply-up operator for n=1:
+        M'' = 3*C*(X^2+1/3)*γ5 + R*X*(X^2+3) ,
+     obtained by left-multiplying D_{ov,n=1} by Q_{11}(X^2)*γ5 = 3(X^2+1/3)*γ5.
+     This avoids the squaring (M†M) needed in the CG path, since BiCGStab
+     handles non-Hermitian systems directly. */
+
+  qpb_spinor_field z = ov_temp_vecs[1];
+  qpb_spinor_field w = ov_temp_vecs[2];
+
+  qpb_double rho = ov_params.rho;
+
+  qpb_complex three_times_c = {3*(rho + 0.5*preconditioner_mass), 0.};
+  qpb_complex r = {rho - 0.5*preconditioner_mass, 0.};
+
+  /* Part 1:  3C*(X^2+1/3)*γ5*x
+     First γ5, then (X^2+1/3): order matters since X^2 does not commute with γ5. */
+  qpb_spinor_gamma5(w, x);           /* w  = γ5·x                      */
+  X2_shifted_op(z, w, 1.0/3.0);      /* z  = (X^2 + 1/3)·γ5·x          */
+
+  /* Part 2:  R*X*(X^2+3)*x */
+  X2_shifted_op(y, x, 3.0);          /* y  = (X^2 + 3)·x               */
+  X_op(w, y);                         /* w  = X·(X^2 + 3)·x             */
+
+  /* Combine: y = 3C·z + R·w */
+  qpb_spinor_axpby(y, three_times_c, z, r, w);
+
+  return;
+}
+
+
 void
 qpb_gamma5_sign_function_of_X_pfrac(qpb_spinor_field y, qpb_spinor_field x)
 {
@@ -452,6 +485,116 @@ qpb_preconditioner_CG(qpb_spinor_field x, qpb_spinor_field b)
 
 
 int
+qpb_preconditioner_bicgstab(qpb_spinor_field x, qpb_spinor_field b)
+{
+  /* Solves the non-squared multiply-up system  M''·x = b'  via BiCGStab,
+     where  b' = 3(X^2+1/3)·γ5·b  and  M'' = 3C(X^2+1/3)γ5 + R·X(X^2+3).
+     The solution x satisfies  D_{ov,n=1}·x = b  directly (no post-processing).
+
+     This replaces qpb_preconditioner_CG for the BiCGStab path: since we
+     no longer need D†D, there is no squaring — one fewer operator application
+     per inner iteration. */
+
+  qpb_spinor_field r0_hat = ov_temp_vecs[8];
+  qpb_spinor_field r      = ov_temp_vecs[9];
+  qpb_spinor_field p      = ov_temp_vecs[10];
+  qpb_spinor_field u      = ov_temp_vecs[11];
+  qpb_spinor_field v      = ov_temp_vecs[12];
+  qpb_spinor_field bprime = ov_temp_vecs[13];
+  qpb_spinor_field tmp    = ov_temp_vecs[3]; /* scratch for b' computation */
+
+  int iters = 0;
+  const int n_reeval = 10;
+
+  qpb_double res_norm, bprime_norm;
+  qpb_complex_double alpha = {1, 0}, omega = {1, 0};
+  qpb_complex_double beta, gamma, rho, zeta;
+
+  /* --- Compute modified RHS:  b' = 3(X^2+1/3)·γ5·b --- */
+  qpb_spinor_gamma5(u, b);                 /* u    = γ5·b                 */
+  X2_shifted_op(tmp, u, 1.0/3.0);       /* tmp = (X^2+1/3)·γ5·b      */
+  qpb_spinor_ax(bprime, (qpb_complex) {3.0, 0.0}, tmp);
+                                              /* bprime = 3(X^2+1/3)·γ5·b     */
+  qpb_spinor_xdotx(&bprime_norm, bprime);
+
+  /* --- x0 = 0 --- */
+  qpb_spinor_field_set_zero(x);
+
+  /* --- r0 = b' - M''·x0 = b'  (since x0 = 0) --- */
+  qpb_spinor_xeqy(r, bprime);
+  qpb_spinor_xeqy(r0_hat, r);        /* shadow residual (fixed) */
+
+  qpb_spinor_xdotx(&gamma.re, r);
+  gamma.im = 0;
+  res_norm = gamma.re;
+  rho = gamma;
+
+  for(iters = 1; iters < prec_CG_max_iter; iters++)
+  {
+    if(res_norm / bprime_norm <= prec_CG_epsilon * prec_CG_epsilon)
+      break;
+
+    /* gamma = (r̂0, r) */
+    qpb_spinor_xdoty(&gamma, r0_hat, r);
+
+    /* beta = (gamma/rho)·(alpha/omega) */
+    beta = CMUL(CDEV(gamma, rho), CDEV(alpha, omega));
+
+    /* p = r + beta·(p - omega·u) */
+    omega = CNEGATE(omega);
+    qpb_spinor_axpy(p, omega, u, p);      /* p -= omega·u                */
+    qpb_spinor_axpy(p, beta, p, r);       /* p  = beta·p + r             */
+
+    /* u = M''·p */
+    M_nonsq_op(u, p);
+
+    /* rho = gamma,  alpha = rho / (r̂0, u) */
+    qpb_spinor_xdoty(&beta, r0_hat, u);
+    rho = gamma;
+    alpha = CDEV(rho, beta);
+
+    /* r -= alpha·u  (r now holds 's' in Wikipedia notation) */
+    alpha = CNEGATE(alpha);
+    qpb_spinor_axpy(r, alpha, u, r);
+
+    /* v = M''·r  (= M''·s, the 't' vector) */
+    M_nonsq_op(v, r);
+
+    /* omega = (v, r) / (v, v) */
+    qpb_spinor_xdoty(&zeta, v, r);
+    qpb_spinor_xdotx(&beta.re, v);
+    beta.im = 0;
+    omega = CDEV(zeta, beta);
+
+    /* x += alpha·p + omega·r  (recall alpha is currently negated) */
+    alpha = CNEGATE(alpha);
+    qpb_spinor_axpy(x, omega, r, x);     /* x += omega·s               */
+    qpb_spinor_axpy(x, alpha, p, x);     /* x += alpha·p               */
+
+    /* Residual update */
+    if(iters % n_reeval == 0)
+    {
+      M_nonsq_op(r, x);
+      qpb_spinor_xmy(r, bprime, r);      /* r = b' - M''·x             */
+    }
+    else
+    {
+      omega = CNEGATE(omega);
+      qpb_spinor_axpy(r, omega, v, r);   /* r -= omega·v               */
+      omega = CNEGATE(omega);
+    }
+
+    qpb_spinor_xdotx(&res_norm, r);
+  }
+
+  if(iters == prec_CG_max_iter)
+    return -1;
+
+  return iters;
+}
+
+
+int
 qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b,
                                         qpb_double CG_epsilon, int CG_max_iter)
 {
@@ -580,6 +723,149 @@ qpb_congrad_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b,
   print(" \tAfter %d iters, preconditioned CG converged, res = %e, relative = %e, "
         "t = %g sec\n",
          iters, true_res_norm, true_res_norm / b_norm, t);
+
+  return iters;
+}
+
+
+int
+qpb_bicgstab_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b,
+                               qpb_double epsilon, int max_iter)
+{
+  /* Preconditioned BiCGStab for the overlap operator.
+     Solves  D_ov · x = b  directly (no normal equations, no squaring).
+
+     Preconditioner:  K ≈ D_{ov,n=1}  (overlap at diagonal KL order n=1),
+     applied via the non-squared multiply-up trick:
+       K·y = r  ⟹  M''·y = 3(X^2+1/3)γ5·r ,
+     solved by the inner BiCGStab (qpb_preconditioner_bicgstab).
+
+     If prec_CG_max_iter == 0, no preconditioning is used (K = I). */
+
+  qpb_spinor_field r0_hat = ov_temp_vecs[14];
+  qpb_spinor_field r      = ov_temp_vecs[15];
+  qpb_spinor_field p      = ov_temp_vecs[16];
+  qpb_spinor_field u      = ov_temp_vecs[17];   /* A·y  or  A·p (unprec) */
+  qpb_spinor_field v      = ov_temp_vecs[18];   /* A·z  or  A·s (unprec) */
+  qpb_spinor_field y      = ov_temp_vecs[19];   /* K^{-1}·p              */
+  qpb_spinor_field z_vec  = ov_temp_vecs[20];   /* K^{-1}·s              */
+
+  int n_reeval = 100;
+  int n_echo = 100;
+  int iters = 0;
+
+  qpb_double res_norm, b_norm;
+  qpb_complex_double alpha = {1, 0}, omega = {1, 0};
+  qpb_complex_double beta, gamma, rho, zeta;
+
+  /* ||b||^2 */
+  qpb_spinor_xdotx(&b_norm, b);
+
+  /* x0 = 0 */
+  qpb_spinor_field_set_zero(x);
+
+  /* r0 = b - D_ov·x0 = b */
+  qpb_spinor_xeqy(r, b);
+  qpb_spinor_xeqy(r0_hat, r);
+
+  qpb_spinor_xdotx(&gamma.re, r);
+  gamma.im = 0;
+  res_norm = gamma.re;
+  rho = gamma;
+
+  qpb_double t = qpb_stop_watch(0);
+  for(iters = 1; iters < max_iter; iters++)
+  {
+    if(res_norm / b_norm <= epsilon)
+      break;
+
+    /* gamma = (r̂0, r) */
+    qpb_spinor_xdoty(&gamma, r0_hat, r);
+
+    /* beta = (gamma/rho)·(alpha/omega) */
+    beta = CMUL(CDEV(gamma, rho), CDEV(alpha, omega));
+
+    /* p = r + beta·(p - omega·u) */
+    omega = CNEGATE(omega);
+    qpb_spinor_axpy(p, omega, u, p);      /* p -= omega·u                */
+    qpb_spinor_axpy(p, beta, p, r);       /* p  = beta·p + r             */
+
+    /* --- Preconditioner:  y = K^{-1}·p --- */
+    if(prec_CG_max_iter == 0)
+      qpb_spinor_xeqy(y, p);             /* no preconditioning           */
+    else
+      qpb_preconditioner_bicgstab(y, p);
+
+    /* u = D_ov · y */
+    qpb_overlap_kl_pfrac(u, y);
+
+    /* rho = gamma,  alpha = rho / (r̂0, u) */
+    qpb_spinor_xdoty(&beta, r0_hat, u);
+    rho = gamma;
+    alpha = CDEV(rho, beta);
+
+    /* r -= alpha·u  (r now holds 's') */
+    alpha = CNEGATE(alpha);
+    qpb_spinor_axpy(r, alpha, u, r);
+
+    /* --- Preconditioner:  z = K^{-1}·s  (s is stored in r) --- */
+    if(prec_CG_max_iter == 0)
+      qpb_spinor_xeqy(z_vec, r);
+    else
+      qpb_preconditioner_bicgstab(z_vec, r);
+
+    /* v = D_ov · z */
+    qpb_overlap_kl_pfrac(v, z_vec);
+
+    /* omega = (v, s) / (v, v)  with s stored in r */
+    qpb_spinor_xdoty(&zeta, v, r);
+    qpb_spinor_xdotx(&beta.re, v);
+    beta.im = 0;
+    omega = CDEV(zeta, beta);
+
+    /* x += alpha·y + omega·z  (alpha is currently negated → flip back) */
+    alpha = CNEGATE(alpha);
+    qpb_spinor_axpy(x, alpha, y, x);     /* x += alpha·y                */
+    qpb_spinor_axpy(x, omega, z_vec, x); /* x += omega·z                */
+
+    /* Residual update */
+    if(iters % n_reeval == 0)
+    {
+      qpb_overlap_kl_pfrac(u, x);
+      qpb_spinor_xmy(r, b, u);           /* r = b - D_ov·x              */
+    }
+    else
+    {
+      omega = CNEGATE(omega);
+      qpb_spinor_axpy(r, omega, v, r);   /* r -= omega·v                */
+      omega = CNEGATE(omega);
+    }
+
+    qpb_spinor_xdotx(&res_norm, r);
+    if(iters % n_echo == 0)
+      print(" \t iters = %8d, res = %e\n", iters, res_norm / b_norm);
+  }
+  t = qpb_stop_watch(t);
+
+  /* Final explicit residual check */
+  qpb_overlap_kl_pfrac(u, x);
+  qpb_spinor_xmy(r, b, u);
+  qpb_spinor_xdotx(&res_norm, r);
+
+  if(iters == max_iter)
+  {
+    error(" !\n");
+    error(" Preconditioned BiCGStab *did not* converge, after %d iterations\n",
+          iters);
+    error(" residual = %e, relative = %e, t = %g sec\n", res_norm,
+          res_norm / b_norm, t);
+    error(" !\n");
+    return -1;
+  }
+
+  print(" \tAfter %d iters, preconditioned BiCGStab converged, res = %e, "
+        "relative = %e, t = %g sec\n",
+        iters, res_norm, res_norm / b_norm, t);
 
   return iters;
 }

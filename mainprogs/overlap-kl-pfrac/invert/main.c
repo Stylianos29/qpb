@@ -1024,7 +1024,8 @@ n_spinors=1;
   for(int i=0; i<n_spinors; i++)
   {
     print("\n");
-    iters = qpb_congrad_overlap_kl_pfrac(sol[i], source[i], \
+    // iters = qpb_congrad_overlap_kl_pfrac(sol[i], source[i],
+    iters = qpb_bicgstab_overlap_kl_pfrac(sol[i], source[i], \
                                               outer_epsilon, outer_max_iters);
     print(" Done vector = %d / %d, iters = %d\n", i+1, n_spinors, iters);
   }
