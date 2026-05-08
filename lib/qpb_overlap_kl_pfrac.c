@@ -511,14 +511,17 @@ qpb_preconditioner_bicgstab(qpb_spinor_field x, qpb_spinor_field b)
   qpb_complex_double beta, gamma, rho, zeta;
 
   /* --- Compute modified RHS:  b' = 3(X^2+1/3)·γ5·b --- */
-  qpb_spinor_gamma5(u, b);                 /* u    = γ5·b                 */
-  X2_shifted_op(tmp, u, 1.0/3.0);       /* tmp = (X^2+1/3)·γ5·b      */
+  qpb_spinor_gamma5(r, b);                 /* r    = γ5·b - r as temp here   */
+  X2_shifted_op(tmp, r, 1.0/3.0);       /* tmp = (X^2+1/3)·γ5·b      */
   qpb_spinor_ax(bprime, (qpb_complex) {3.0, 0.0}, tmp);
                                               /* bprime = 3(X^2+1/3)·γ5·b     */
   qpb_spinor_xdotx(&bprime_norm, bprime);
 
   /* --- x0 = 0 --- */
   qpb_spinor_field_set_zero(x);
+  qpb_spinor_field_set_zero(p);
+  qpb_spinor_field_set_zero(u);
+  qpb_spinor_field_set_zero(v);
 
   /* --- r0 = b' - M''·x0 = b'  (since x0 = 0) --- */
   qpb_spinor_xeqy(r, bprime);
@@ -556,7 +559,7 @@ qpb_preconditioner_bicgstab(qpb_spinor_field x, qpb_spinor_field b)
     rho = gamma;
     alpha = CDEV(rho, beta);
 
-    /* r -= alpha·u  (r now holds 's' in Wikipedia notation) */
+    /* r -= alpha·u */
     alpha = CNEGATE(alpha);
     qpb_spinor_axpy(r, alpha, u, r);
 
