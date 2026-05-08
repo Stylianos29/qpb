@@ -534,8 +534,8 @@ qpb_preconditioner_bicgstab(qpb_spinor_field x, qpb_spinor_field b)
 
   for(iters = 1; iters < prec_CG_max_iter; iters++)
   {
-    print(" \tAt %d iters, preconditioner solver has, " \
-                  "relative res = %e\n", iters, res_norm / bprime_norm);
+    // print(" \tAt %d iters, preconditioner solver has, " \
+    //               "relative res = %e\n", iters, res_norm / bprime_norm);
 
     if(res_norm / bprime_norm <= prec_CG_epsilon * prec_CG_epsilon)
       break;
