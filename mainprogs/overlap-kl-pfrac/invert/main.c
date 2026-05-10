@@ -621,11 +621,23 @@ main(int argc, char *argv[])
       error("valid options for Preconditioning are yes or no\n");
       exit(QPB_PARAMETERS_ERROR);
     }
+  int prec_order = 0;
   qpb_double prec_mass = 0;
   qpb_double prec_epsilon = 0;
   int prec_max_iters = 0;
   if(use_preconditioning)
   {
+    if(sscanf(qpb_parse("Preconditioner order"), "%d", &prec_order)!=1)
+      {
+        error("error parsing for %s\n",
+        "Preconditioner order");
+        exit(QPB_PARSER_ERROR);
+      }
+    if(prec_order != 0 && prec_order != 1) // Only nPrec =0 and 1 are implemented
+      {
+        error("Preconditioner order currently supports only 0 or 1, quitting\n");
+        exit(QPB_PARAMETERS_ERROR);
+      }
     if(sscanf(qpb_parse("Preconditioner mass"), "%lf", &prec_mass)!=1)
       {
         error("error parsing for %s\n",
@@ -812,6 +824,7 @@ main(int argc, char *argv[])
   print(" Preconditioning = %s\n", use_preconditioning ? "yes" : "no");
   if(use_preconditioning)
     {
+      print(" Preconditioner order = %d\n", prec_order);
       print(" Preconditioner mass = %.6f\n", prec_mass);
       print(" Preconditioner epsilon = %e\n", prec_epsilon);
       print(" Preconditioner max iters = %d\n", prec_max_iters);
@@ -1019,7 +1032,7 @@ main(int argc, char *argv[])
 
   qpb_overlap_kl_pfrac_init(solver_arg_links, clover_term, kl_class, kl_iters, \
                     rho, c_sw, mass, scaling_factor, ms_epsilon, ms_max_iters, \
-                    prec_mass, prec_epsilon, prec_max_iters);
+                    prec_order, prec_mass, prec_epsilon, prec_max_iters);
 n_spinors=1;
   for(int i=0; i<n_spinors; i++)
   {
