@@ -1033,14 +1033,28 @@ main(int argc, char *argv[])
   qpb_overlap_kl_pfrac_init(solver_arg_links, clover_term, kl_class, kl_iters, \
                     rho, c_sw, mass, scaling_factor, ms_epsilon, ms_max_iters, \
                     prec_order, prec_mass, prec_epsilon, prec_max_iters);
-n_spinors=1;
+                    
+  int (*solver_fn)(qpb_spinor_field, qpb_spinor_field, qpb_double, int) = NULL;
+  switch(solver)
+  {
+  case CG:
+    solver_fn = qpb_congrad_overlap_kl_pfrac;
+    break;
+  case BICGSTAB:
+    solver_fn = qpb_bicgstab_overlap_kl_pfrac;
+    break;
+  default:
+    error("Outer solver in overlap-kl-pfrac/invert currently supports only "
+          "'cg' or 'bicgstab', quitting\n");
+    exit(QPB_PARAMETERS_ERROR);
+  }
+
+  n_spinors=1;
   for(int i=0; i<n_spinors; i++)
   {
-    print("\n");
-    // iters = qpb_congrad_overlap_kl_pfrac(sol[i], source[i],
-    iters = qpb_bicgstab_overlap_kl_pfrac(sol[i], source[i], \
-                                              outer_epsilon, outer_max_iters);
-    print(" Done vector = %d / %d, iters = %d\n", i+1, n_spinors, iters);
+      print("\n");
+      iters = solver_fn(sol[i], source[i], outer_epsilon, outer_max_iters);
+      print(" Done vector = %d / %d, iters = %d\n", i+1, n_spinors, iters);
   }
   t = qpb_stop_watch(t);
 
