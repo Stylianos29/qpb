@@ -104,9 +104,9 @@ void
 qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover, \
           enum qpb_kl_classes kl_class, int kl_iters, qpb_double rho, \
           qpb_double c_sw, qpb_double mass, qpb_double scaling_factor, \
-          qpb_double ms_epsilon, int ms_max_iters,
-          qpb_double prec_mass, qpb_double prec_epsilon, int prec_max_iters,
-          int prec_order_arg)
+          qpb_double ms_epsilon, int ms_max_iters, \
+          int prec_order_arg, qpb_double prec_mass, \
+                              qpb_double prec_epsilon, int prec_max_iters)
 {
   if(ov_params.initialized != QPB_OVERLAP_INITIALIZED)
   {
