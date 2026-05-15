@@ -10,10 +10,98 @@
 #include <qpb_dslash_wrappers.h>
 #include <qpb_stop_watch.h>
 
-#define QPB_MSCONGRAD_NUMB_TEMP_VECS 3
-#define MAX_NUMB_SHIFTS 256
+#define QPB_MSCONGRAD_NUMB_TEMP_VECS 10   /* was 3; p_s now starts at index 10 */
+#define MAX_NUMB_SHIFTS              256
+#define MAX_PREC_N                   32   /* hard cap; raise if you want larger N */
 
 qpb_spinor_field mscongrad_temp_vecs[QPB_MSCONGRAD_NUMB_TEMP_VECS + MAX_NUMB_SHIFTS];
+
+/* === Preconditioner config (hard-coded; edit and recompile) === */
+static int        prec_N          = 5;    /* Chebyshev order; 0 disables preconditioning */
+static qpb_double prec_lambda_min = 0.0;  /* assumed min eigenvalue of X^2 */
+static qpb_double prec_lambda_max = 1.63;  /* assumed max eigenvalue of X^2 */
+
+/* === Preconditioner state, recomputed per qpb_mscongrad() call === */
+static qpb_double prec_sigma_ref;
+static qpb_double prec_alpha;     /* σ_ref + λ_min(X²)  */
+static qpb_double prec_beta;      /* σ_ref + λ_max(X²)  */
+static qpb_double prec_coeff[MAX_PREC_N];
+
+/* Context captured for the helpers below */
+static void (*prec_dslash_func)(qpb_spinor_field, qpb_spinor_field, void **);
+static void  *prec_dslash_args_buf[4];
+
+
+/* Apply (X² + shift)·x → y, using `scratch` for the intermediate γ5·D·x. */
+static void
+X2_shift_apply(qpb_spinor_field y, qpb_spinor_field x,
+               qpb_double shift, qpb_spinor_field scratch)
+{
+  prec_dslash_func(scratch, x,       (void **)prec_dslash_args_buf);
+  prec_dslash_func(y,       scratch, (void **)prec_dslash_args_buf);
+  qpb_spinor_axpy(y, (qpb_complex){shift, 0.}, x, y);
+}
+
+/* Q = (2(X² + σ_ref) − (β+α)) / (β−α);  maps spectrum [α,β] of (X²+σ_ref) to [-1,1]. */
+static void
+Q_apply(qpb_spinor_field y, qpb_spinor_field x, qpb_spinor_field scratch)
+{
+  qpb_double inv_span = 1./(prec_beta - prec_alpha);
+  qpb_complex a = { 2.*inv_span, 0. };
+  qpb_complex b = { -inv_span*(prec_beta + prec_alpha), 0. };
+  X2_shift_apply(y, x, prec_sigma_ref, scratch);   /* y = (X² + σ_ref) x */
+  qpb_spinor_axpby(y, a, y, b, x);                 /* y = a·y + b·x       */
+}
+
+/* Build c_n for the expansion  1/((β+α)/2 + x(β−α)/2) ≈ Σ c_n T_n(x), x ∈ [-1,1].
+   (Same construction as qpb_overlap_Chebyshev.c but with 1/(·) instead of 1/√(·).) */
+static void
+compute_prec_coefficients(void)
+{
+  qpb_double xk[MAX_PREC_N], rk[MAX_PREC_N];
+  for(int k=0; k<prec_N; k++) {
+    xk[k] = cos(M_PI*(k + 0.5)/(qpb_double)prec_N);
+    rk[k] = 1./(0.5*(prec_beta + prec_alpha)
+               + 0.5*xk[k]*(prec_beta - prec_alpha));
+  }
+  for(int n=0; n<prec_N; n++) {
+    qpb_double sum = 0.;
+    for(int k=0; k<prec_N; k++) {
+      qpb_double Tn;
+      if(n == 0)       Tn = 1.;
+      else if(n == 1)  Tn = xk[k];
+      else {
+        qpb_double Tm2 = 1., Tm1 = xk[k];
+        for(int j=2; j<=n; j++) { Tn = 2.*xk[k]*Tm1 - Tm2; Tm2 = Tm1; Tm1 = Tn; }
+      }
+      sum += rk[k]*Tn;
+    }
+    qpb_double prefactor = (n == 0 ? 1./prec_N : 2./prec_N);
+    prec_coeff[n] = prefactor*sum;
+  }
+}
+
+/* y ≈ M⁻¹ · x  via Clenshaw on Chebyshev expansion of 1/(X²+σ_ref). */
+static void
+apply_M_inverse(qpb_spinor_field y, qpb_spinor_field x,
+                qpb_spinor_field b1, qpb_spinor_field b2,
+                qpb_spinor_field sc)
+{
+  qpb_complex two = {2., 0.};
+  qpb_spinor_field_set_zero(b2);
+  qpb_spinor_field_set_zero(b1);
+  for(int n = prec_N - 1; n > 0; n--) {
+    Q_apply(y, b1, sc);                                          /* y = Q b1   */
+    qpb_spinor_ax(y, two, y);                                    /* y = 2 Q b1 */
+    qpb_spinor_axpy(y, (qpb_complex){prec_coeff[n], 0.}, x, y);  /* + c_n x    */
+    qpb_spinor_xmy(y, y, b2);                                    /* − b2       */
+    qpb_spinor_xeqy(b2, b1);
+    qpb_spinor_xeqy(b1, y);
+  }
+  Q_apply(y, b1, sc);
+  qpb_spinor_axpy(y, (qpb_complex){prec_coeff[0], 0.}, x, y);
+  qpb_spinor_xmy(y, y, b2);
+}
 
 void
 qpb_mscongrad_init(int numb_shifts)
@@ -55,6 +143,12 @@ qpb_mscongrad(qpb_spinor_field *x, qpb_spinor_field b, void * gauge,
   qpb_spinor_field r = mscongrad_temp_vecs[0];
   qpb_spinor_field y = mscongrad_temp_vecs[1];
   qpb_spinor_field w = mscongrad_temp_vecs[2];
+  qpb_spinor_field z       = mscongrad_temp_vecs[4];   /* z   = M r           */
+  qpb_spinor_field y_M     = mscongrad_temp_vecs[5];   /* y_M = M p (recursive) */
+  qpb_spinor_field v       = mscongrad_temp_vecs[6];   /* v   = A · y_M        */
+  qpb_spinor_field cheb_b1 = mscongrad_temp_vecs[7];
+  qpb_spinor_field cheb_b2 = mscongrad_temp_vecs[8];
+  qpb_spinor_field cheb_sc = mscongrad_temp_vecs[9];
 
   /*
    *  Sort shifts in ascending order
@@ -89,7 +183,7 @@ qpb_mscongrad(qpb_spinor_field *x, qpb_spinor_field b, void * gauge,
 
   p = mscongrad_temp_vecs[3];
   for(int s=0; s<ns; s++)
-    p_s[s] = mscongrad_temp_vecs[4+s];
+    p_s[s] = mscongrad_temp_vecs[10+s];
   
   qpb_double res_norm, b_norm;
   qpb_complex_double alpha_s[ns], alpha;
@@ -138,7 +232,23 @@ qpb_mscongrad(qpb_spinor_field *x, qpb_spinor_field b, void * gauge,
 	dslash_func = &qpb_gamma5_dslash;	
       break;
     }
-  
+    
+  const int prec_on = (prec_N > 0);
+
+  prec_dslash_args_buf[0] = gauge_bc_ptr;
+  prec_dslash_args_buf[1] = &mass;
+  prec_dslash_args_buf[2] = &clover;
+  prec_dslash_args_buf[3] = &c_sw;
+  prec_dslash_func        = dslash_func;
+
+  if(prec_on) {
+    prec_sigma_ref = sigmas[numb_shifts - 1];                 /* σ_ref = largest shift */
+    print(" \tprec_sigma_ref = %.4e\n", prec_sigma_ref);
+    prec_alpha     = prec_sigma_ref + prec_lambda_min;
+    prec_beta      = prec_sigma_ref + prec_lambda_max;
+    compute_prec_coefficients();
+  }
+
   /* qpb_spinor_gamma5(r, b); */
   /* dslash_func(p[0], r, dslash_args); */
   /* qpb_spinor_xeqy(b, p[0]); */
@@ -147,25 +257,36 @@ qpb_mscongrad(qpb_spinor_field *x, qpb_spinor_field b, void * gauge,
   /*
    * Initialize
    */
+  qpb_double eucl_res_norm;   /* <r,r>   – for the break check          */
+  qpb_double res_norm_M;      /* <r,M r> – algorithmic norm (was res_norm) */
+
   qpb_spinor_xdotx(&b_norm, b);
   qpb_spinor_xeqy(r, b);
 
+  /* z_0 = M r_0,  y_M_0 = M p_0 = M b ; if disabled, M = I. */
+  if(prec_on) {
+    apply_M_inverse(z, r, cheb_b1, cheb_b2, cheb_sc);
+    qpb_spinor_xeqy(y_M, z);
+  } else {
+    qpb_spinor_xeqy(z, r);
+    qpb_spinor_xeqy(y_M, r);
+  }
+
   qpb_spinor_xeqy(p, b);
   for(int s=0; s<ns; s++)
-    {
-      qpb_spinor_xeqy(p_s[s], b);      
-    }
+    qpb_spinor_xeqy(p_s[s], b);
+
   beta0 = (qpb_complex){1., 0.};
   alpha = (qpb_complex){0., 0.};
+  for(int s=0; s<ns; s++) {
+    zeta_s[s][0] = (qpb_complex){1., 0.};
+    zeta_s[s][1] = (qpb_complex){1., 0.};
+    alpha_s[s]   = (qpb_complex){0., 0.};
+  }
 
-  for(int s=0; s<ns; s++)
-    {
-      zeta_s[s][0] = (qpb_complex){1., 0.};
-      zeta_s[s][1] = (qpb_complex){1., 0.};
-      alpha_s[s] = (qpb_complex){0., 0.};
-    }
-
-  qpb_spinor_xdotx(&res_norm, r);
+  qpb_spinor_xdotx(&eucl_res_norm, r);
+  qpb_spinor_xdoty(&omega, r, z);   omega.im = 0.;   /* ω_0 = <r,M r> = <r,z> */
+  res_norm_M = omega.re;
 
   /* 
      Tracks whether we've converged for each 
@@ -180,98 +301,91 @@ qpb_mscongrad(qpb_spinor_field *x, qpb_spinor_field b, void * gauge,
   qpb_double t = qpb_stop_watch(0);
   for(iters=1; iters<max_iter; iters++)
     {
-      /*
-       * res_norm is the residual of the zero-shift solution
-       */
-      if(res_norm / b_norm <= epsilon)
-	break;
-    
-      /*
-       * D^+ D on p[0] and add min(shift)
-       */
-      dslash_count+=1;
-      dslash_func(w, p, dslash_args);
-      dslash_count+=1;
-      dslash_func(y, w, dslash_args);
+      /* break on Euclidean residual — unchanged semantics */
+      if(eucl_res_norm / b_norm <= epsilon)
+        break;
 
+      /* w = A p (unchanged) */
+      dslash_count += 1; dslash_func(w, p, dslash_args);
+      dslash_count += 1; dslash_func(y, w, dslash_args);
       qpb_spinor_axpy(w, c_sigma0, p, y);
 
-      qpb_spinor_xdoty(&delta, p, w);
-      gamma = (qpb_complex){res_norm, 0.};
+      /* NEW: v = A · y_M  (only needed when preconditioning is on) */
+      if(prec_on) {
+        dslash_count += 1; dslash_func(v, y_M, dslash_args);
+        dslash_count += 1; dslash_func(y, v,   dslash_args);
+        qpb_spinor_axpy(v, c_sigma0, y_M, y);
+      }
+
+      /* δ = <p, A p>_M = <y_M, w>   (when disabled, y_M == p, so equals <p,w>) */
+      qpb_spinor_xdoty(&delta, y_M, w);
+
+      gamma = (qpb_complex){res_norm_M, 0.};   /* γ = ω_k in M-inner product */
       beta1 = CNEGATE(CDEV(gamma, delta));
-      
-      /*
-       * Compute the zetas, betas and update x
-       */
-      for(int s=0; s<ns; s++)
-	{
-	  qpb_complex one = (qpb_complex){1.0, 0.0};
-	  qpb_complex c1 = CMUL(zeta_s[s][0], CMUL(zeta_s[s][1], beta0));
-	  qpb_complex c2 = CMUL(CMUL(CSUB(zeta_s[s][0], zeta_s[s][1]), beta1), alpha);
-	  qpb_complex c3 = CMUL(zeta_s[s][0], CMUL(beta0, (CSUB(one, CMUL(c_sigmas[s], beta1)))));
-	  
-	  zeta_s[s][2] = CDEV(c1, (CADD(c2, c3)));
-    if (CNORM2(zeta_s[s][2]) == 0)
-      converged[s] = 1;
-	  beta_s[s] = CMUL(beta1, CDEV(zeta_s[s][2], zeta_s[s][1]));
-	  
-	  /*** 
-	       x[0] is the solution, to the modified operator D^+D + shift0, 
-	       so there are ns+1 elements in x[], x[1] corresponds to c_sigmas[0], etc.
-	  ***/
-	  if(!converged[s])
-	    qpb_spinor_axpy(x[s+1], CNEGATE(beta_s[s]), p_s[s], x[s+1]); 
-	}
-      qpb_spinor_axpy(x[0], CNEGATE(beta1), p, x[0]); 
 
-      /*
-       * Update the residual
-       */
-      if(iters % n_reeval == 0)
-	{
-	  dslash_count+=1;
-    dslash_func(w, x[0], dslash_args);
-	  dslash_count+=1;
-    dslash_func(y, w, dslash_args);
-	  qpb_spinor_axpy(y, c_sigma0, x[0], y);
-	  qpb_spinor_xmy(r, b, y);
-	}
-      else
-	{
-	  qpb_spinor_axpy(r, beta1, w, r);
-	}
-      qpb_spinor_xdotx(&omega.re, r);
-      omega.im = 0.;
-      alpha = CDEV(omega, gamma);
-      res_norm = omega.re;
+      /* ζ_s / β_s / x_s / x_0 updates — unchanged */
+      for(int s=0; s<ns; s++) {
+        qpb_complex one = (qpb_complex){1.0, 0.0};
+        qpb_complex c1 = CMUL(zeta_s[s][0], CMUL(zeta_s[s][1], beta0));
+        qpb_complex c2 = CMUL(CMUL(CSUB(zeta_s[s][0], zeta_s[s][1]), beta1), alpha);
+        qpb_complex c3 = CMUL(zeta_s[s][0], CMUL(beta0, (CSUB(one, CMUL(c_sigmas[s], beta1)))));
+        zeta_s[s][2] = CDEV(c1, (CADD(c2, c3)));
+        if (CNORM2(zeta_s[s][2]) == 0) converged[s] = 1;
+        beta_s[s] = CMUL(beta1, CDEV(zeta_s[s][2], zeta_s[s][1]));
+        if(!converged[s])
+          qpb_spinor_axpy(x[s+1], CNEGATE(beta_s[s]), p_s[s], x[s+1]);
+      }
+      qpb_spinor_axpy(x[0], CNEGATE(beta1), p, x[0]);
 
-      /* 
-       * compute alpha_s and update p-vector 
-       */
-      for(int s=0; s<ns; s++)
-	{
-	  alpha_s[s] = CMUL(alpha, CDEV(CMUL(zeta_s[s][2], beta_s[s]), CMUL(zeta_s[s][1], beta1)));
-	  qpb_spinor_axpby(p_s[s], zeta_s[s][2], r, alpha_s[s], p_s[s]);
-	}
-    
+      /* r and z update — recursive or full refresh */
+      if(iters % n_reeval == 0) {
+        dslash_count += 1; dslash_func(w, x[0], dslash_args);
+        dslash_count += 1; dslash_func(y, w,    dslash_args);
+        qpb_spinor_axpy(y, c_sigma0, x[0], y);
+        qpb_spinor_xmy(r, b, y);
+        if(prec_on) {
+          apply_M_inverse(z,   r, cheb_b1, cheb_b2, cheb_sc);   /* refresh z   */
+          apply_M_inverse(y_M, p, cheb_b1, cheb_b2, cheb_sc);   /* refresh y_M */
+        } else {
+          qpb_spinor_xeqy(z,   r);
+          qpb_spinor_xeqy(y_M, p);
+        }
+      } else {
+        qpb_spinor_axpy(r, beta1, w, r);                         /* r += β₁ w   */
+        if(prec_on) qpb_spinor_axpy(z, beta1, v, z);             /* z += β₁ v   */
+        else        qpb_spinor_xeqy(z, r);
+      }
+
+      /* Norms */
+      qpb_spinor_xdotx(&eucl_res_norm, r);
+      qpb_spinor_xdoty(&omega, r, z);   omega.im = 0.;           /* ω_{k+1} = <r, M r> */
+      alpha       = CDEV(omega, gamma);
+      res_norm_M  = omega.re;
+
+      /* α_s and p_s updates — unchanged */
+      for(int s=0; s<ns; s++) {
+        alpha_s[s] = CMUL(alpha, CDEV(CMUL(zeta_s[s][2], beta_s[s]), CMUL(zeta_s[s][1], beta1)));
+        qpb_spinor_axpby(p_s[s], zeta_s[s][2], r, alpha_s[s], p_s[s]);
+      }
+
+      /* p update — unchanged form,  AND recursive y_M = α y_M + z */
       qpb_spinor_axpy(p, alpha, p, r);
+      if(prec_on) qpb_spinor_axpy(y_M, alpha, y_M, z);
+      else        qpb_spinor_xeqy(y_M, p);
+
       if(iters%n_echo == 0)
-	print(" \titers = %8d, res = %e\n", iters, res_norm / b_norm);
+        print(" \titers = %8d, res = %e\n", iters, eucl_res_norm / b_norm);
 
       beta0 = beta1;
-      for(int s=0; s<ns; s++)
-	{
-	  zeta_s[s][0] = zeta_s[s][1];
-	  zeta_s[s][1] = zeta_s[s][2];
-	}      
+      for(int s=0; s<ns; s++) {
+        zeta_s[s][0] = zeta_s[s][1];
+        zeta_s[s][1] = zeta_s[s][2];
+      }
 
-      /*
-	Check if one of the shifts has converged
-       */
+      /* per-shift convergence check at the end of the iteration — unchanged */
       if(iters % n_check_converged == 0)
-	// Check from largest to smallest
-	for(int s=ns-1; s>=0; s--)
-	  if(!converged[s])
+        for(int s=ns-1; s>=0; s--)
+          if(!converged[s])
 	    {
 	      qpb_double p_norm;
 	      qpb_spinor_xdotx(&p_norm, p_s[s]);
@@ -319,14 +433,14 @@ qpb_mscongrad(qpb_spinor_field *x, qpb_spinor_field b, void * gauge,
     {
       error(" !\n");
       error(" msCG *did not* converge, after %d iterations\n", iters);
-      error(" residual = %e, relative = %e, t = %g secs\n", res_norm, res_norm / b_norm, t);
+      error(" residual = %e, relative = %e, t = %g secs\n", eucl_res_norm, eucl_res_norm / b_norm, t);
       error(" !\n");
       return -1;
     }
 
   print(" After %d iterations msCG converged, t = %g secs\n", iters, t);
   print(" Total number of dslash applications %d\n", dslash_count);
-  print(" Shift = %10g, residual = %e, relative = %e\n", sigmas[0], res_norm, res_norm / b_norm);
+  print(" Shift = %10g, residual = %e, relative = %e\n", sigmas[0], eucl_res_norm, eucl_res_norm / b_norm);
   for(int s=0; s<ns; s++)
     print(" Shift = %10g, residual = %e, relative = %e\n", sigmas[s+1], res_s[s], res_s[s] / b_norm);
   
