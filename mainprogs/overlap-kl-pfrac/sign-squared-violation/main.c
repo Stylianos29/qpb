@@ -263,6 +263,11 @@ main(int argc, char *argv[])
       exit(QPB_PARSER_ERROR);
     }
 
+  int prec_order = 0;
+  qpb_double prec_mass = 0;
+  qpb_double prec_epsilon = 0;
+  int prec_max_iters = 0;
+
   qpb_double timebc;
   if(sscanf(qpb_parse("BC in time"), "%lf", &timebc)!=1)
     {
@@ -443,7 +448,8 @@ main(int argc, char *argv[])
   diffs = qpb_alloc(sizeof(qpb_double)*n_vec);
 
   qpb_overlap_kl_pfrac_init(solver_arg_links, clover_term, kl_class, kl_iters, \
-                          rho, c_sw, mass, scaling_factor, epsilon, max_iters);
+                      rho, c_sw, mass, scaling_factor, epsilon, max_iters, \
+                      prec_order, prec_mass, prec_epsilon, prec_max_iters);
 
   qpb_double t = qpb_stop_watch(0);
   for(int i=0; i<n_vec; i++)
