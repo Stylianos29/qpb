@@ -127,10 +127,19 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover, \
     // the scaling parameter
     if (scaling_factor != 1.0)
     {
-      constant_term *= 1/sqrt(scaling_factor);
+      qpb_double correction_term = constant_term;
+      for(int i=0; i<KL_diagonal_order; i++)
+      {
+        correction_term += numerators[i]/((1.0/scaling_factor)+shifts[i]);
+      }
+      correction_term *= 1.0/sqrt(scaling_factor);
+
+      constant_term *= 1.0/sqrt(scaling_factor);
+      constant_term *= 1.0/correction_term;
       for(int i=0; i<KL_diagonal_order; i++)
       {
         numerators[i] *= sqrt(scaling_factor);
+        numerators[i] *= 1.0/correction_term;
         shifts[i] *= scaling_factor;
       }
     }
