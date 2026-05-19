@@ -1225,7 +1225,7 @@ qpb_preconditioner_bicgstab(qpb_spinor_field x, qpb_spinor_field b)
 
     qpb_spinor_xdotx(&res_norm, r);
     if(iters % n_echo == 0)
-      print(" \t iters = %8d, res = %e\n", iters, res_norm / b_norm);
+      print(" \t Preconditioner iter = %8d, res = %e\n", iters, res_norm / b_norm);
   }
 
   if(iters == prec_CG_max_iter)
