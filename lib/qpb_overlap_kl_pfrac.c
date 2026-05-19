@@ -1109,7 +1109,7 @@ qpb_bicgstab_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b,
  *  combination used in <paper citation>. Kept in tree so future readers
  *  can resurrect the exact numerical recipe without git archaeology.
  *
- *  Enabling for an experiment requires TWO edits, both inside `#if 0`
+ *  Enabling for an experiment requires FOUR edits, both inside `#if 0`
  *  blocks tagged with the marker `LEGACY_BICGSTAB_PREC`:
  *    1. This section: flip `#if 0` → `#if 1` to compile the function.
  *    2. qpb_bicgstab_overlap_kl_pfrac (Section 9): flip the matching
@@ -1140,8 +1140,7 @@ qpb_preconditioner_bicgstab(qpb_spinor_field x, qpb_spinor_field b)
   qpb_spinor_field r_hat = ov_temp_vecs[9];
   qpb_spinor_field p     = ov_temp_vecs[10];
   qpb_spinor_field v     = ov_temp_vecs[11];
-  qpb_spinor_field s     = ov_temp_vecs[12];
-  qpb_spinor_field t     = ov_temp_vecs[13];
+  qpb_spinor_field t     = ov_temp_vecs[12];
 
   int n_reeval = 100;
   int n_echo = 100;
@@ -1158,7 +1157,6 @@ qpb_preconditioner_bicgstab(qpb_spinor_field x, qpb_spinor_field b)
   qpb_spinor_field_set_zero(x);
   qpb_spinor_field_set_zero(p);
   qpb_spinor_field_set_zero(v);
-  qpb_spinor_field_set_zero(s);
   qpb_spinor_field_set_zero(t);
 
   /* r0 = b - D_ov·x0 = b */
@@ -1189,19 +1187,19 @@ qpb_preconditioner_bicgstab(qpb_spinor_field x, qpb_spinor_field b)
     /* v = M_kernel · p */
     M_kernel_op(v, p);
 
-    /* rho = gamma,  alpha = rho / (r̂0, u) */
+    /* rho = gamma,  alpha = rho / (r̂, v) */
     qpb_spinor_xdoty(&beta, r_hat, v);
     rho = gamma;
     alpha = CDEV(rho, beta);
 
-    /* r -= alpha·u  (r now holds 's') */
+    /* r -= alpha·v */
     alpha = CNEGATE(alpha);
     qpb_spinor_axpy(r, alpha, v, r);
 
     /* t = M_kernel · r */
     M_kernel_op(t, r);
 
-    /* omega = (v, s) / (v, v)  with s stored in r */
+    /* omega = (t, r) / (t, t) */
     qpb_spinor_xdoty(&zeta, t, r);
     qpb_spinor_xdotx(&beta.re, t);
     beta.im = 0;
@@ -1209,19 +1207,19 @@ qpb_preconditioner_bicgstab(qpb_spinor_field x, qpb_spinor_field b)
 
     /* x += alpha·y + omega·z  (alpha is currently negated → flip back) */
     alpha = CNEGATE(alpha);
-    qpb_spinor_axpy(x, alpha, p, x);     /* x += alpha·y                */
-    qpb_spinor_axpy(x, omega, r, x); /* x += omega·z                */
+    qpb_spinor_axpy(x, alpha, p, x);     /* x += alpha·p                */
+    qpb_spinor_axpy(x, omega, r, x); /* x += omega·r                */
 
     /* Residual update */
     if(iters % n_reeval == 0)
     {
       M_kernel_op(t, x);
-      qpb_spinor_xmy(r, b, t);           /* r = b - D_ov·x              */
+      qpb_spinor_xmy(r, b, t);           /* r = b - M_kernel·x              */
     }
     else
     {
       omega = CNEGATE(omega);
-      qpb_spinor_axpy(r, omega, t, r);   /* r -= omega·v                */
+      qpb_spinor_axpy(r, omega, t, r);   /* r -= omega·t                */
       omega = CNEGATE(omega);
     }
 
