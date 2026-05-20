@@ -46,9 +46,10 @@
   outer because outer↔inner pairing is strict (outer CG ↔ inner CG, outer
   BiCGStab ↔ inner CGNE) and only one outer solver runs per invocation.
 
-  *  Section 10  -  LEGACY/DEAD: inner BiCGStab for nPrec=0 (guarded by #if 0)
+  -  Section 10  -  LEGACY / EXPERIMENTAL: inner BiCGStab for nPrec ∈ {0, 1}
+     (guarded by #if 0)
+  */
 
-*/
 #define OVERLAP_NUMB_TEMP_VECS 21
 #define MSCG_NUMB_TEMP_VECS 20
 
@@ -1105,20 +1106,24 @@ qpb_bicgstab_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b,
 /*
  *  Status: DEAD CODE. Compiled out by `#if 1` below.
  *
- *  Purpose: a one-shot reproduction of the inner-BiCGStab/outer-BiCGStab
- *  combination used in <paper citation>. Kept in tree so future readers
- *  can resurrect the exact numerical recipe without git archaeology.
+ *  Purpose: a one-shot reproduction of the
+ *  inner-BiCGStab/outer-BiCGStab combination used in <paper citation>.
+ *  Kept in tree so future readers can resurrect the exact numerical
+ *  recipe without git archaeology.
  *
  *  Enabling for an experiment requires FOUR edits, both inside `#if 0`
  *  blocks tagged with the marker `LEGACY_BICGSTAB_PREC`:
  *    1. This section: flip `#if 0` → `#if 1` to compile the function.
  *    2. qpb_bicgstab_overlap_kl_pfrac (Section 9): flip the matching
  *       `#if 0` → `#if 1` and the `#if 1` → `#if 0` to swap the inner
- *       call from qpb_preconditioner_CGNE to qpb_preconditioner_bicgstab.
+ *       call from qpb_preconditioner_CGNE to
+ *       qpb_preconditioner_bicgstab.
  *
  *  Constraints when enabled:
- *    - prec_order MUST be 0 (kernel preconditioner). The function calls
- *      M_kernel_op directly and aborts otherwise.
+ *    - Constraints when enabled: prec_order ∈ {0, 1}. For prec_order=1,
+ *      the algorithm uses the multiply-up reorganization (Appendix A.3
+ *      of the report) — operator K = M_mult_up_op, bprime =
+ *      3(X²+1/3)γ5·b, no post-processing required.
  *
  *  Generated data: <date you ran the experiment, plus a note pointing
  *  to the results file / report section>.
@@ -1129,18 +1134,19 @@ qpb_bicgstab_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b,
 static int
 qpb_preconditioner_bicgstab(qpb_spinor_field x, qpb_spinor_field b)
 {
-  if(prec_order != 0)
+  if(prec_order != 0 && prec_order != 1)
   {
-    error("qpb_preconditioner_bicgstab: legacy path is nPrec=0 only, got prec_order=%d\n",
+    error("qpb_preconditioner_bicgstab: prec_order must be 0 or 1, got %d\n",
           prec_order);
     exit(QPB_PARAMETERS_ERROR);
   }
 
-  qpb_spinor_field r     = ov_temp_vecs[8];
-  qpb_spinor_field r_hat = ov_temp_vecs[9];
-  qpb_spinor_field p     = ov_temp_vecs[10];
-  qpb_spinor_field v     = ov_temp_vecs[11];
-  qpb_spinor_field t     = ov_temp_vecs[12];
+  qpb_spinor_field r      = ov_temp_vecs[8];
+  qpb_spinor_field r_hat  = ov_temp_vecs[9];
+  qpb_spinor_field p      = ov_temp_vecs[10];
+  qpb_spinor_field v      = ov_temp_vecs[11];
+  qpb_spinor_field bprime = ov_temp_vecs[12];   /* was unused 's' */
+  qpb_spinor_field t      = ov_temp_vecs[13];
 
   int n_reeval = 100;
   int n_echo = 100;
@@ -1149,18 +1155,33 @@ qpb_preconditioner_bicgstab(qpb_spinor_field x, qpb_spinor_field b)
   qpb_double res_norm, b_norm;
   qpb_complex_double alpha = {1, 0}, omega = {1, 0};
   qpb_complex_double beta, gamma, rho, zeta;
+  
+  /* --- bprime preprocessing --- */
+  if(prec_order == 1)
+  {
+    /* bprime = 3(X²+1/3)·γ5·b   (matches the CGNE inner's preprocessing
+      and the multiply-up derivation in A.3) */
+    qpb_spinor_gamma5(v, b);              /* v = γ5·b   (v re-zeroed below) */
+    X2_shifted_op(t, v, 1.0/3.0);         /* t = (X²+1/3)·γ5·b              */
+    qpb_spinor_ax(bprime, (qpb_complex) {3.0, 0.0}, t);
+  }
+  else /* prec_order == 0 */
+  {
+    qpb_spinor_xeqy(bprime, b);
+  }
 
-  /* ||b||^2 */
-  qpb_spinor_xdotx(&b_norm, b);
+  qpb_double bprime_norm;
+  /* ||bprime||^2 */
+  qpb_spinor_xdotx(&bprime_norm, bprime);
 
-  /* x0 = 0 */
+  /* x0 = 0; zero p,v,t (which were used as scratch above) */
   qpb_spinor_field_set_zero(x);
   qpb_spinor_field_set_zero(p);
   qpb_spinor_field_set_zero(v);
   qpb_spinor_field_set_zero(t);
 
-  /* r0 = b - D_ov·x0 = b */
-  qpb_spinor_xeqy(r, b);
+  /* r0 = bprime - K·x0 = bprime */
+  qpb_spinor_xeqy(r, bprime);
   qpb_spinor_xeqy(r_hat, r);
 
   qpb_spinor_xdotx(&gamma.re, r);
@@ -1170,7 +1191,7 @@ qpb_preconditioner_bicgstab(qpb_spinor_field x, qpb_spinor_field b)
 
   for(iters = 1; iters < prec_CG_max_iter; iters++)
   {
-    if(res_norm / b_norm <= prec_CG_epsilon*prec_CG_epsilon)
+    if(res_norm / bprime_norm <= prec_CG_epsilon * prec_CG_epsilon)
       break;
 
     /* gamma = (r̂0, r) */
@@ -1185,7 +1206,7 @@ qpb_preconditioner_bicgstab(qpb_spinor_field x, qpb_spinor_field b)
     qpb_spinor_axpy(p, beta, p, r);       /* p  = beta·p + r             */
 
     /* v = M_kernel · p */
-    M_kernel_op(v, p);
+    K_inner_op_ptr(v, p);
 
     /* rho = gamma,  alpha = rho / (r̂, v) */
     qpb_spinor_xdoty(&beta, r_hat, v);
@@ -1197,7 +1218,7 @@ qpb_preconditioner_bicgstab(qpb_spinor_field x, qpb_spinor_field b)
     qpb_spinor_axpy(r, alpha, v, r);
 
     /* t = M_kernel · r */
-    M_kernel_op(t, r);
+    K_inner_op_ptr(t, r);
 
     /* omega = (t, r) / (t, t) */
     qpb_spinor_xdoty(&zeta, t, r);
@@ -1213,7 +1234,7 @@ qpb_preconditioner_bicgstab(qpb_spinor_field x, qpb_spinor_field b)
     /* Residual update */
     if(iters % n_reeval == 0)
     {
-      M_kernel_op(t, x);
+      K_inner_op_ptr(t, x);
       qpb_spinor_xmy(r, b, t);           /* r = b - M_kernel·x              */
     }
     else
