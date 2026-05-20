@@ -1235,7 +1235,7 @@ qpb_preconditioner_bicgstab(qpb_spinor_field x, qpb_spinor_field b)
     if(iters % n_reeval == 0)
     {
       K_inner_op_ptr(t, x);
-      qpb_spinor_xmy(r, b, t);           /* r = b - M_kernel·x              */
+      qpb_spinor_xmy(r, bprime, t);           /* r = b - M_kernel·x              */
     }
     else
     {
@@ -1246,7 +1246,7 @@ qpb_preconditioner_bicgstab(qpb_spinor_field x, qpb_spinor_field b)
 
     qpb_spinor_xdotx(&res_norm, r);
     if(iters % n_echo == 0)
-      print(" \t Preconditioner iter = %8d, res = %e\n", iters, res_norm / b_norm);
+      print(" \t Preconditioner iter = %8d, res = %e\n", iters, res_norm / bprime_norm);
   }
 
   if(iters == prec_CG_max_iter)
