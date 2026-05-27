@@ -54,4 +54,6 @@ mainprogs/overlap-Zolotarev/sign-squared-violation/sign-squared-violation
 */mesons/batch_processing_invert_solutions/*
 */*/mesons/batch_processing_invert_solutions/*
 
+**/runner/
+
 .vscode/settings.json
