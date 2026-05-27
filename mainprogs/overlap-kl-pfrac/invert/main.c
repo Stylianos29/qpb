@@ -605,6 +605,71 @@ main(int argc, char *argv[])
 	    "Inner solver max iters");
       exit(QPB_PARSER_ERROR);
     }
+
+  int use_preconditioning;
+  char prec_toggle[256];
+  if(sscanf(qpb_parse("Preconditioning"), "%s", prec_toggle) != 1)
+    {
+      error("error parsing for %s\n", "Preconditioning");
+      exit(QPB_PARSER_ERROR);
+    }
+  if(strcmp(prec_toggle, "yes") == 0)
+    use_preconditioning = 1;
+  else if(strcmp(prec_toggle, "no") == 0)
+    use_preconditioning = 0;
+  else
+    {
+      error("valid options for Preconditioning are yes or no\n");
+      exit(QPB_PARAMETERS_ERROR);
+    }
+  int prec_order = 0;
+  qpb_double prec_mass = 0;
+  qpb_double prec_ms_epsilon = ms_epsilon;
+  qpb_double prec_epsilon = 0;
+  int prec_max_iter = 0;
+  if(use_preconditioning)
+  {
+    if(sscanf(qpb_parse("Preconditioner order"), "%d", &prec_order)!=1)
+      {
+        error("error parsing for %s\n",
+        "Preconditioner order");
+        exit(QPB_PARSER_ERROR);
+      }
+    if(prec_order != 0 && prec_order != 1) // Only nPrec =0 and 1 are implemented
+      {
+        error("Preconditioner order currently supports only 0 or 1, quitting\n");
+        exit(QPB_PARAMETERS_ERROR);
+      }
+    if(sscanf(qpb_parse("Preconditioner mass"), "%lf", &prec_mass)!=1)
+      {
+        error("error parsing for %s\n",
+        "Preconditioner mass");
+        exit(QPB_PARSER_ERROR);
+      }
+    if(sscanf(qpb_parse("Preconditioner epsilon"), "%lf", &prec_epsilon)!=1)
+      {
+        error("error parsing for %s\n",
+        "Preconditioner epsilon");
+        exit(QPB_PARSER_ERROR);
+      }
+    if(prec_epsilon <= 0 || prec_epsilon >= 1)
+      {
+        error("Preconditioner epsilon must be in (0, 1), quitting\n");
+        exit(QPB_PARAMETERS_ERROR);
+      }
+    if(sscanf(qpb_parse("Preconditioner max iters"), "%d", &prec_max_iter)!=1)
+      {
+        error("error parsing for %s\n",
+        "Preconditioner max iters");
+        exit(QPB_PARSER_ERROR);
+      }
+    if(prec_max_iter < 1)
+      {
+        error("only provide positive integer values for Preconditioner max iters, quitting\n");
+        exit(QPB_PARAMETERS_ERROR);
+      }
+  }
+
   char sol_file[QPB_MAX_STRING];
   if(sscanf(qpb_parse("Solution file"), "%s", sol_file)!=1)
     {
@@ -959,8 +1024,10 @@ main(int argc, char *argv[])
 
   qpb_double t = qpb_stop_watch(0);
 
-  qpb_overlap_kl_pfrac_init(solver_arg_links, clover_term, kl_class, kl_iters, \
-                    rho, c_sw, mass, scaling_factor, ms_epsilon, ms_max_iters);
+  qpb_overlap_kl_pfrac_init(solver_arg_links, clover_term, kl_class, kl_iters,
+                  rho, c_sw, mass, scaling_factor,
+                  ms_epsilon, prec_ms_epsilon, ms_max_iters,
+                  prec_epsilon, prec_max_iter);
 
   for(int i=0; i<n_spinors; i++)
   {
