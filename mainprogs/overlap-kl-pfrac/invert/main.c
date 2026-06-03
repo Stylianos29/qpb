@@ -622,30 +622,11 @@ main(int argc, char *argv[])
       error("valid options for Preconditioning are yes or no\n");
       exit(QPB_PARAMETERS_ERROR);
     }
-  int prec_order = 0;
-  qpb_double prec_mass = 0;
-  qpb_double prec_ms_epsilon = ms_epsilon;
   qpb_double prec_epsilon = 0;
   int prec_max_iter = 0;
+  qpb_double prec_ms_epsilon = ms_epsilon;
   if(use_preconditioning)
   {
-    if(sscanf(qpb_parse("Preconditioner order"), "%d", &prec_order)!=1)
-      {
-        error("error parsing for %s\n",
-        "Preconditioner order");
-        exit(QPB_PARSER_ERROR);
-      }
-    if(prec_order != 0 && prec_order != 1) // Only nPrec =0 and 1 are implemented
-      {
-        error("Preconditioner order currently supports only 0 or 1, quitting\n");
-        exit(QPB_PARAMETERS_ERROR);
-      }
-    if(sscanf(qpb_parse("Preconditioner mass"), "%lf", &prec_mass)!=1)
-      {
-        error("error parsing for %s\n",
-        "Preconditioner mass");
-        exit(QPB_PARSER_ERROR);
-      }
     if(sscanf(qpb_parse("Preconditioner epsilon"), "%lf", &prec_epsilon)!=1)
       {
         error("error parsing for %s\n",
@@ -666,6 +647,16 @@ main(int argc, char *argv[])
     if(prec_max_iter < 1)
       {
         error("only provide positive integer values for Preconditioner max iters, quitting\n");
+        exit(QPB_PARAMETERS_ERROR);
+      }
+    if(sscanf(qpb_parse("Preconditioner MSCG epsilon"), "%lf", &prec_ms_epsilon) != 1)
+      {
+          error("error parsing for %s\n", "Preconditioner MSCG epsilon");
+          exit(QPB_PARSER_ERROR);
+      }
+    if(prec_ms_epsilon <= 0 || prec_ms_epsilon >= 1)
+      {
+        error("Preconditioner MSCG epsilon must be in (0, 1), quitting\n");
         exit(QPB_PARAMETERS_ERROR);
       }
   }
@@ -824,6 +815,14 @@ main(int argc, char *argv[])
   print(" Outer max solver iters = %d\n", outer_max_iters);
   print(" Inner solver epsilon = %e\n", ms_epsilon);
   print(" Inner max solver iters = %d\n", ms_max_iters);
+  if(use_preconditioning) {
+    print(" Preconditioning = yes\n");
+    print(" Preconditioner epsilon = %e\n", prec_epsilon);
+    print(" Preconditioner max iters = %d\n", prec_max_iter);
+    print(" Preconditioner MSCG epsilon = %e\n", prec_ms_epsilon);
+  } else {
+    print(" Preconditioning = no\n");
+  }
   qpb_rng_init(seed);
   problem_params.timebc = timebc;
 

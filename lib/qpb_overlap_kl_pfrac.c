@@ -29,14 +29,10 @@
     [ 5]  p                              [ 9]  z_pc  = K^{-1} · s
     [ 6]  u = D_ov^outer · y_pc
 
-   Preconditioner-solver scratch (one set of slots, two possible owners):
-     n_outer ≥ 2 → inner BiCGStab on D_ov^(n_outer-1):
+   Preconditioner-solver scratch (one set of slots):
+     n_outer → inner BiCGStab on D_ov^(n_outer-1):
        [10]  r0_hat_in   [11] r_in   [12] p_in   [13] u_in   [14] v_in   [15] (spare)
-     n_outer  = 1 → legacy CGNE on the shifted kernel (kept verbatim):
-       [10..15]  r, p, w, y, bprime, bpp  (same six slots as legacy nPrec=0)
 
-   The two preconditioner paths never coexist at runtime — n_outer is fixed
-   at init — so they safely share these six slots.
 */
 
 #define OVERLAP_NUMB_TEMP_VECS 16
@@ -65,9 +61,7 @@ static qpb_double   constant_term [LEVEL_COUNT];
 static qpb_double MS_solver_precision[LEVEL_COUNT];
 static int        MS_maximum_solver_iterations;
 
-/* Preconditioner-solver control (one set of knobs; semantics adapt to path):
-     n_outer = 1 → drives legacy CGNE-on-shifted-kernel
-     n_outer ≥ 2 → drives the new inner BiCGStab on D_ov^(n_prec) */
+/* Preconditioner-solver control: drives inner BiCGStab on D_ov^(n_outer-1). */
 static qpb_double prec_solver_epsilon;
 static int        prec_solver_max_iter;
 
@@ -148,9 +142,9 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover,
     exit(QPB_PARAMETERS_ERROR);
   }
 
-  /* Levels: outer = kl_iters, prec = kl_iters - 1. Prec level is only
-     meaningfully populated when n_outer ≥ 2; at n_outer = 1 the
-     preconditioner falls back to the shifted kernel. */
+  /* Levels: outer = kl_iters, prec = kl_iters - 1.
+    At n_outer = 1, LEVEL_PREC has order 0 and apply_gamma5_sign uses
+    sign(X) ≈ X  ⟹  D_ov^(0) = C·I + R·(D − ρ)  (shifted kernel). */
   kl_order[LEVEL_OUTER] = kl_iters;
   kl_order[LEVEL_PREC]  = kl_iters - 1;
 
@@ -187,7 +181,7 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover,
     }
   }
 
-  /* MSCG workspace sized for the larger of the two orders = n_outer. */
+  /* MSCG workspace sized for the larger of the KL orders. */
   qpb_mscongrad_init(kl_order[LEVEL_OUTER]);
 }
 
@@ -242,8 +236,11 @@ apply_gamma5_sign(overlap_level_t lvl,
   qpb_spinor_field sum = ov_temp_vecs[0];
   
   int n = kl_order[lvl];
-  if(n == 0) { error("apply_gamma5_sign: level %d has KL order 0\n", lvl);
-               exit(QPB_PARAMETERS_ERROR); }
+  if(n == 0) {
+    /* sign(X) ≈ X  ⇒  γ5·sign(X)·x = γ5·X·x = (D − ρ)·x */
+    D_op(y, x);
+    return;
+  }
 
   qpb_spinor_field yMS[n];
   for(int s = 0; s < n; s++) {
@@ -320,6 +317,9 @@ preconditioner_bicgstab(qpb_spinor_field x, qpb_spinor_field b)
   qpb_spinor_xdotx(&b_norm, b);
 
   qpb_spinor_field_set_zero(x);
+  qpb_spinor_field_set_zero(p);
+  qpb_spinor_field_set_zero(u);
+
   qpb_spinor_xeqy(r, b);            /* r0 = b - D_ov^prec·x0 = b */
   qpb_spinor_xeqy(r0_hat, r);
 
@@ -328,7 +328,7 @@ preconditioner_bicgstab(qpb_spinor_field x, qpb_spinor_field b)
   rho = gamma;
 
   for(iters = 1; iters < prec_solver_max_iter; iters++) {
-    if(res_norm / b_norm <= prec_solver_epsilon * prec_solver_epsilon)
+    if(res_norm / b_norm <= prec_solver_epsilon)
       break;
 
     qpb_spinor_xdoty(&gamma, r0_hat, r);
@@ -367,123 +367,6 @@ preconditioner_bicgstab(qpb_spinor_field x, qpb_spinor_field b)
   return iters;            /* caller can compare against prec_solver_max_iter */
 }
 
-// Keep verbatim from the legacy file:
-
-static void
-M_kernel_op(qpb_spinor_field y, qpb_spinor_field x)
-{
-  /* Implements M = c·I + r·D ,
-     with c = ρ + a*m/2 (preconditioner center)
-     and  r = ρ - a*m/2 (preconditioner radius).
-     This is the simple kernel-based preconditioner used for nPrec=0. */
-
-  qpb_spinor_field w = ov_temp_vecs[0];
-
-  qpb_double rho = ov_params.rho;
-  qpb_double preconditioner_mass = ov_params.mass;
-
-  qpb_complex preconditioner_center = {rho + 0.5*preconditioner_mass, 0.};
-  qpb_complex preconditioner_radius = {rho - 0.5*preconditioner_mass, 0.};
-
-  D_op(w, x);
-  qpb_spinor_axpby(y, preconditioner_center, x, preconditioner_radius, w);
-  
-  return;
-}
-
-
-static void
-M_kernel_conj_op(qpb_spinor_field y, qpb_spinor_field x)
-{
-  /* Implements M† = γ5·M·γ5 ,
-     valid because of the γ5-hermiticity of D: γ5·D·γ5 = D†. */
-
-  qpb_spinor_field z = ov_temp_vecs[1];
-
-  qpb_spinor_gamma5(y, x);
-  M_kernel_op(z, y);
-  qpb_spinor_gamma5(y, z);
-  
-  return;
-}
-
-
-static int
-kernel_preconditioner_CGNE(qpb_spinor_field x, qpb_spinor_field b)
-{
-  /* CGNE on the shifted kernel M = c·I + r·D; used by
-  qpb_bicgstab_overlap_kl_pfrac only when n_outer == 1. */
-
-  qpb_spinor_field r      = ov_temp_vecs[10];
-  qpb_spinor_field p      = ov_temp_vecs[11];
-  qpb_spinor_field w      = ov_temp_vecs[12];
-  qpb_spinor_field y      = ov_temp_vecs[13];
-  qpb_spinor_field bprime = ov_temp_vecs[14];
-  qpb_spinor_field bpp    = ov_temp_vecs[15];
-
-  int iters = 0;
-
-  /* All scalars are real -- K†K is HPD */
-  qpb_double bpp_norm, res_norm, new_res_norm, omega, alpha, beta;
-  
-  qpb_spinor_xeqy(bprime, b);
-
-  /* bpp = K†·bprime  (RHS of the normal-equations system K†K·x = K†·bprime) */
-  M_kernel_conj_op(bpp, bprime);
-  qpb_spinor_xdotx(&bpp_norm, bpp);
-
-  /* --- x0 = 0 --- */
-  qpb_spinor_field_set_zero(x);
-  qpb_spinor_xeqy(r, bpp);
-
-  /* gamma_0 = ||r0||^2 */
-  qpb_spinor_xdotx(&res_norm, r);
-
-  /* p0 = r0 */
-  qpb_spinor_xeqy(p, r);
-
-  for(iters = 1; iters < prec_solver_max_iter; iters++)
-  {
-    /* Stopping on relative residual of the normal-equations system:
-       ||r||^2 / ||K†·bprime||^2 <= prec_solver_epsilon^2 */
-    if(res_norm / bpp_norm <= prec_solver_epsilon * prec_solver_epsilon)
-      break;
-
-    /* Apply K†K to p: w = K·p,  y = K†·w = K†K·p */
-    M_kernel_op(w, p);
-    M_kernel_conj_op(y, w);
-
-    /* omega = p†·K†K·p = ||K·p||^2 = ||w||^2  (real, positive) */
-    qpb_spinor_xdotx(&omega, w);
-
-    /* alpha = ||r||^2 / (p†·K†K·p)  (real, positive) */
-    alpha = res_norm / omega;
-
-    /* x += alpha·p */
-    qpb_spinor_axpy(x, (qpb_complex) {alpha, 0.}, p, x);
-
-    /* r -= alpha·K†K·p = alpha·y */
-    qpb_spinor_axpy(r, (qpb_complex) {-alpha, 0.}, y, r);
-    
-    /* new_res_norm = ||r_{k+1}||^2 */
-    qpb_spinor_xdotx(&new_res_norm, r);
-
-    /* beta = ||r_{k+1}||^2 / ||r_k||^2 */
-    beta = new_res_norm / res_norm;
-
-    /* p_{k+1} = r_{k+1} + beta·p_k */
-    qpb_spinor_axpy(p, (qpb_complex) {beta, 0.}, p, r);
-
-    res_norm = new_res_norm;
-  }
-
-  return iters;
-}
-
-
-// M_kernel_op and M_kernel_conj_op qpb_preconditioner_CGNE — rename to
-// kernel_preconditioner_CGNE for clarity and have it use slots
-// [10..15]. Its body doesn't change.
 
 int
 qpb_bicgstab_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b,
@@ -503,14 +386,14 @@ qpb_bicgstab_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b,
   qpb_complex_double beta, gamma, rho, zeta;
 
   /* Select the preconditioner path once, outside the loop. */
-  int n_outer = kl_order[LEVEL_OUTER];
-  enum { PREC_NONE, PREC_KERNEL, PREC_BICGSTAB } prec_path;
-  if(prec_solver_max_iter == 0)   prec_path = PREC_NONE;
-  else if(n_outer == 1)           prec_path = PREC_KERNEL;
-  else                            prec_path = PREC_BICGSTAB;
+  enum { PREC_NONE, PREC_BICGSTAB } prec_path;
+  prec_path = (prec_solver_max_iter == 0) ? PREC_NONE : PREC_BICGSTAB;
 
   qpb_spinor_xdotx(&b_norm, b);
   qpb_spinor_field_set_zero(x);
+  qpb_spinor_field_set_zero(p);
+  qpb_spinor_field_set_zero(u);
+
   qpb_spinor_xeqy(r, b);                 /* r0 = b - D_ov·x0 = b */
   qpb_spinor_xeqy(r0_hat, r);
   qpb_spinor_xdotx(&res_norm, r);
@@ -531,7 +414,6 @@ qpb_bicgstab_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b,
     /* y_pc = K^{-1}·p */
     switch(prec_path) {
     case PREC_NONE:     qpb_spinor_xeqy(y_pc, p);                  break;
-    case PREC_KERNEL:   kernel_preconditioner_CGNE(y_pc, p);       break;
     case PREC_BICGSTAB: preconditioner_bicgstab   (y_pc, p);       break;
     }
 
@@ -547,7 +429,6 @@ qpb_bicgstab_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b,
     /* z_pc = K^{-1}·s */
     switch(prec_path) {
     case PREC_NONE:     qpb_spinor_xeqy(z_pc, r);                  break;
-    case PREC_KERNEL:   kernel_preconditioner_CGNE(z_pc, r);       break;
     case PREC_BICGSTAB: preconditioner_bicgstab   (z_pc, r);       break;
     }
 
