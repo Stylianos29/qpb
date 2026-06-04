@@ -16,7 +16,7 @@
 #include <math.h>
 
 /*
-  ov_temp_vecs layout (16 vectors total):
+  ov_temp_vecs layout (22 vectors total):
 
    Apply scratch (transient; clobbered on every call to the apply functions):
     [ 0]  sum vector for the partial-fraction accumulation
@@ -31,17 +31,21 @@
 
    Preconditioner-solver scratch (one set of slots):
      n_outer → inner BiCGStab on D_ov^(n_outer-1):
-       [10]  r0_hat_in   [11] r_in   [12] p_in   [13] u_in   [14] v_in   [15] (spare)
+       [10]  r0_hat_in   [11] r_in   [12] p_in   [13] u_in   [14] v_in   
+       [15] prec1: y_pc   ← NEW (K2⁻¹·p) [16] prec1: z_pc   ← NEW (K2⁻¹·s)
+
+    [17] prec2: r0_hat   [18] prec2: r   [19] prec2: p   [20] prec2: u   [21] prec2: v
 
 */
 
-#define OVERLAP_NUMB_TEMP_VECS 16
+#define OVERLAP_NUMB_TEMP_VECS 24
 #define MSCG_NUMB_TEMP_VECS    20
 
 typedef enum {
   LEVEL_OUTER = 0,
   LEVEL_PREC  = 1,
-  LEVEL_COUNT = 2
+  LEVEL_PREC2 = 2,
+  LEVEL_COUNT = 3
 } overlap_level_t;
 
 static qpb_spinor_field ov_temp_vecs  [OVERLAP_NUMB_TEMP_VECS];
@@ -65,6 +69,7 @@ static int        MS_maximum_solver_iterations;
 static qpb_double prec_solver_epsilon;
 static int        prec_solver_max_iter;
 
+static int        second_layer_on;        /* resolved once at init */
 
 void
 qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover,
@@ -147,9 +152,13 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover,
     sign(X) ≈ X  ⟹  D_ov^(0) = C·I + R·(D − ρ)  (shifted kernel). */
   kl_order[LEVEL_OUTER] = kl_iters;
   kl_order[LEVEL_PREC]  = kl_iters - 1;
-
+  kl_order[LEVEL_PREC2] = kl_iters - 2;          /* may be < 0 for kl_iters < 2 */
+  
   MS_solver_precision[LEVEL_OUTER] = ms_epsilon;
   MS_solver_precision[LEVEL_PREC]  = prec_ms_epsilon;
+  MS_solver_precision[LEVEL_PREC2] = prec_ms_epsilon;
+  // prec2_solver_epsilon  = prec2_epsilon;
+  // prec2_solver_max_iter = prec2_max_iter;
   MS_maximum_solver_iterations     = ms_max_iters;
 
   prec_solver_epsilon  = prec_epsilon;
@@ -159,7 +168,7 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover,
      order is 0 — the kernel path doesn't use shifts/numerators. */
   for(int lvl = 0; lvl < LEVEL_COUNT; lvl++) {
     int n = kl_order[lvl];
-    if(n == 0) { shifts[lvl] = NULL; numerators[lvl] = NULL;
+    if(n <= 0) { shifts[lvl] = NULL; numerators[lvl] = NULL;
                  constant_term[lvl] = 0.; continue; }
 
     shifts    [lvl] = qpb_alloc(sizeof(qpb_double) * n);
@@ -180,6 +189,9 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover,
       }
     }
   }
+
+  /* Second layer is meaningful only if the first layer is actually running. */
+  second_layer_on = (prec_max_iter > 0) && (kl_order[LEVEL_PREC2] >= 0);
 
   /* MSCG workspace sized for the larger of the KL orders. */
   qpb_mscongrad_init(kl_order[LEVEL_OUTER]);
@@ -301,13 +313,13 @@ void qpb_conjugate_overlap_kl_pfrac(qpb_spinor_field y, qpb_spinor_field x)
 
 
 static int
-preconditioner_bicgstab(qpb_spinor_field x, qpb_spinor_field b)
+preconditioner_bicgstab_2(qpb_spinor_field x, qpb_spinor_field b)
 {
-  qpb_spinor_field r0_hat = ov_temp_vecs[10];
-  qpb_spinor_field r      = ov_temp_vecs[11];
-  qpb_spinor_field p      = ov_temp_vecs[12];
-  qpb_spinor_field u      = ov_temp_vecs[13];
-  qpb_spinor_field v      = ov_temp_vecs[14];
+  qpb_spinor_field r0_hat = ov_temp_vecs[17];
+  qpb_spinor_field r      = ov_temp_vecs[18];
+  qpb_spinor_field p      = ov_temp_vecs[19];
+  qpb_spinor_field u      = ov_temp_vecs[20];
+  qpb_spinor_field v      = ov_temp_vecs[21];
 
   qpb_double res_norm, b_norm;
   qpb_complex_double alpha = {1, 0}, omega = {1, 0};
@@ -338,7 +350,7 @@ preconditioner_bicgstab(qpb_spinor_field x, qpb_spinor_field b)
     qpb_spinor_axpy(p, omega, u, p);     /* p -= omega·u                 */
     qpb_spinor_axpy(p, beta, p, r);      /* p  = beta·p + r              */
 
-    apply_overlap(LEVEL_PREC, u, p);     /* u  = D_ov^prec · p           */
+    apply_overlap(LEVEL_PREC2, u, p);     /* u  = D_ov^prec · p           */
 
     qpb_spinor_xdoty(&beta, r0_hat, u);
     rho   = gamma;
@@ -347,7 +359,7 @@ preconditioner_bicgstab(qpb_spinor_field x, qpb_spinor_field b)
     alpha = CNEGATE(alpha);
     qpb_spinor_axpy(r, alpha, u, r);     /* r -= alpha·u   (r ≡ s now)   */
 
-    apply_overlap(LEVEL_PREC, v, r);     /* v  = D_ov^prec · s           */
+    apply_overlap(LEVEL_PREC2, v, r);     /* v  = D_ov^prec · s           */
 
     qpb_spinor_xdoty(&zeta, v, r);
     qpb_spinor_xdotx(&beta.re, v); beta.im = 0;
@@ -356,6 +368,84 @@ preconditioner_bicgstab(qpb_spinor_field x, qpb_spinor_field b)
     alpha = CNEGATE(alpha);
     qpb_spinor_axpy(x, alpha, p, x);     /* x += alpha·p                 */
     qpb_spinor_axpy(x, omega, r, x);     /* x += omega·s   (s is in r)   */
+
+    omega = CNEGATE(omega);
+    qpb_spinor_axpy(r, omega, v, r);     /* r -= omega·v                 */
+    omega = CNEGATE(omega);
+
+    qpb_spinor_xdotx(&res_norm, r);
+  }
+
+  return iters;            /* caller can compare against prec_solver_max_iter */
+}
+
+
+static int
+preconditioner_bicgstab(qpb_spinor_field x, qpb_spinor_field b)
+{
+  qpb_spinor_field r0_hat = ov_temp_vecs[10];
+  qpb_spinor_field r      = ov_temp_vecs[11];
+  qpb_spinor_field p      = ov_temp_vecs[12];
+  qpb_spinor_field u      = ov_temp_vecs[13];
+  qpb_spinor_field v      = ov_temp_vecs[14];
+  qpb_spinor_field y_pc   = ov_temp_vecs[15];
+  qpb_spinor_field z_pc   = ov_temp_vecs[16];
+
+  qpb_double res_norm, b_norm;
+  qpb_complex_double alpha = {1, 0}, omega = {1, 0};
+  qpb_complex_double beta, gamma, rho, zeta;
+  int iters;
+
+  qpb_spinor_xdotx(&b_norm, b);
+
+  qpb_spinor_field_set_zero(x);
+  qpb_spinor_field_set_zero(p);
+  qpb_spinor_field_set_zero(u);
+
+  qpb_spinor_xeqy(r, b);            /* r0 = b - D_ov^prec·x0 = b */
+  qpb_spinor_xeqy(r0_hat, r);
+
+  qpb_spinor_xdotx(&res_norm, r);
+  gamma.re = res_norm; gamma.im = 0.;
+  rho = gamma;
+
+  for(iters = 1; iters < prec_solver_max_iter; iters++) {
+    if(res_norm / b_norm <= prec_solver_epsilon)
+      break;
+
+    qpb_spinor_xdoty(&gamma, r0_hat, r);
+    beta = CMUL(CDEV(gamma, rho), CDEV(alpha, omega));
+
+    omega = CNEGATE(omega);
+    qpb_spinor_axpy(p, omega, u, p);     /* p -= omega·u                 */
+    qpb_spinor_axpy(p, beta, p, r);      /* p  = beta·p + r              */
+
+    // apply_overlap(LEVEL_PREC, u, p);     /* u  = D_ov^prec · p           */
+    if(second_layer_on) preconditioner_bicgstab_2(y_pc, p);  /* y_pc = K2⁻¹·p   */
+    else                qpb_spinor_xeqy(y_pc, p);
+    apply_overlap(LEVEL_PREC, u, y_pc);                       /* u = D_ov^(n-1)·y_pc */
+
+    qpb_spinor_xdoty(&beta, r0_hat, u);
+    rho   = gamma;
+    alpha = CDEV(rho, beta);
+
+    alpha = CNEGATE(alpha);
+    qpb_spinor_axpy(r, alpha, u, r);     /* r -= alpha·u   (r ≡ s now)   */
+
+    // apply_overlap(LEVEL_PREC, v, r);     /* v  = D_ov^prec · s           */
+    if(second_layer_on) preconditioner_bicgstab_2(z_pc, r);  /* z_pc = K2⁻¹·s   */
+    else                qpb_spinor_xeqy(z_pc, r);
+    apply_overlap(LEVEL_PREC, v, z_pc);                       /* v = D_ov^(n-1)·z_pc */
+
+    qpb_spinor_xdoty(&zeta, v, r);
+    qpb_spinor_xdotx(&beta.re, v); beta.im = 0;
+    omega = CDEV(zeta, beta);
+
+    alpha = CNEGATE(alpha);
+    // qpb_spinor_axpy(x, alpha, p, x);     /* x += alpha·p                 */
+    // qpb_spinor_axpy(x, omega, r, x);     /* x += omega·s   (s is in r)   */
+    qpb_spinor_axpy(x, alpha, y_pc, x);    /* x += alpha·y_pc   (NOT alpha·p) */
+    qpb_spinor_axpy(x, omega, z_pc, x);    /* x += omega·z_pc   (NOT omega·s) */
 
     omega = CNEGATE(omega);
     qpb_spinor_axpy(r, omega, v, r);     /* r -= omega·v                 */
