@@ -21,41 +21,56 @@
 
 /*
  * ============================================================================
- *  Recycled (deflated) multi-shift CG  --  PHASE 1: deflated initial guess
+ *  Recycled (deflated) multi-shift CG
  * ============================================================================
  *
- *  This is the standard multi-shift CG of qpb augmented with a recycle /
- *  deflation subspace U whose columns approximate the lowest eigenvectors of
- *  the square operator  A = gamma5 D gamma5 D = D^dag D.
+ *  Standard qpb multi-shift CG augmented with a recycle / deflation subspace U
+ *  whose columns approximate the lowest eigenvectors of the square operator
+ *  A = gamma5 D gamma5 D = D^dag D, following the "Recycled Multi-Shift Solver"
+ *  method note.
  *
- *  In this first phase we implement *only* change (1) of the method note
- *  ("Recycled Multi-Shift Solver"):  the DEFLATED INITIAL GUESS
+ *  U is built once per gauge configuration (lazily, on the first call) by a
+ *  Lanczos eigensolver on A; it persists across the subsequent qpb_mscongrad()
+ *  calls sharing the same init/finalize bracket (all RHS of one inversion job)
+ *  and is freed in qpb_mscongrad_finalize().  Pre-computed once per call:
  *
- *        x^sigma_0 = U (H^sigma)^{-1} U^dag b ,   H^sigma = U^dag (A + sigma) U
+ *        C ≡ A U ,      M ≡ U^dag C = U^dag A U   (k x k Hermitian),
  *
- *  for every shift, with the single tracked residual
+ *  so that for any shift sigma, H^sigma = U^dag (A + sigma) U = M + sigma I
+ *  (U is orthonormalized => U^dag U = I).
  *
- *        r_0 = b - (A + sigma_0) x^{sigma_0}_0 = b - (C z_0 + sigma_0 x_0),
- *        C = A U ,
+ *  TWO changes to the solver, each independently switchable:
  *
- *  and the search directions seeded as  p_0 = p^sigma_0 = r_0 .  The per-
- *  iteration search-direction projection (change (2) of the note) is NOT
- *  applied here -- that is "full deflated CG" and is left for phase 2.  With
- *  change (1) alone the method is "init-CG": the body of the iteration is
- *  identical to the original solver, it can never stall, and exact MSCG
- *  collinearity is broken only at i = 0.
+ *  (1) DEFLATED INITIAL GUESS  [QPB_RECYCLE_K > 0]:
+ *        x^sigma_0 = U (M + sigma I)^{-1} U^dag b   for every shift,
+ *        r_0 = b - (A + sigma_0) x^{sigma_0}_0 = b - C z_0 - sigma_0 x_0,
+ *        p_0 = p^sigma_0 = r_0 .
+ *      (For point sources this is nearly a no-op since U^dag b is tiny; it is
+ *       kept because it supplies the range(U) component needed by change (2).)
  *
- *  The subspace U is built once per gauge configuration (lazily, on the first
- *  call) by a Lanczos eigensolver on A; it then persists across the
- *  subsequent qpb_mscongrad() calls that share the same qpb_mscongrad_init /
- *  qpb_mscongrad_finalize bracket (i.e. all right-hand sides of one inversion
- *  job) and is freed in qpb_mscongrad_finalize().
+ *  (2) DEFLATED SEARCH DIRECTION  [QPB_RECYCLE_PROJECT = 1]:
+ *        after every base-direction update, project p back into (A'U)^perp:
+ *           p <- p - U (H^0)^{-1} U^dag (A' p),   A' = A + sigma_0, H^0 = M + sigma_0 I.
+ *      Because A is Hermitian, U^dag(A' p) = (A'U)^dag p = C^dag p + sigma_0 U^dag p,
+ *      so NO extra dslash is needed: cost is O(N k) per iteration (a few inner
+ *      products, one k x k triangular solve, one rank-k axpy).  This is the
+ *      change that actually removes the low modes from the *iteration* (and
+ *      hence speeds convergence independently of source/low-mode overlap).
  *
- *  Tunables (override at compile time with -DQPB_RECYCLE_K=... etc.):
- *      QPB_RECYCLE_K : number of deflation vectors carried in U (0 disables
- *                      recycling and reduces this file to the original solver).
- *      QPB_RECYCLE_M : Lanczos search dimension used to build U (must be >= K;
- *                      larger m -> more accurate low modes, more memory).
+ *  Configurations (override at compile time, e.g. -DQPB_RECYCLE_PROJECT=0):
+ *      QPB_RECYCLE_K = 0                      -> plain solver (no recycling).
+ *      QPB_RECYCLE_K > 0, QPB_RECYCLE_PROJECT = 0 -> Phase 1 (init-guess only).
+ *      QPB_RECYCLE_K > 0, QPB_RECYCLE_PROJECT = 1 -> Phase 2 (full deflated CG).
+ *
+ *  NOTE on shifted systems: the deflation projector uses the base shift
+ *  (sigma_0).  Shifted systems ride along via the unchanged ms-CG zeta
+ *  recurrences, so their residuals are no longer exactly collinear with the
+ *  base; expect a per-shift residual floor (verify it is below your physics
+ *  tolerance).  This is intrinsic to deflating a shared-Krylov multishift.
+ *
+ *  Tunables:
+ *      QPB_RECYCLE_K : number of deflation vectors carried in U.
+ *      QPB_RECYCLE_M : Lanczos search dimension used to build U (>= K).
  * ============================================================================
  */
 #ifndef QPB_RECYCLE_K
@@ -63,6 +78,9 @@
 #endif
 #ifndef QPB_RECYCLE_M
 #define QPB_RECYCLE_M 64
+#endif
+#ifndef QPB_RECYCLE_PROJECT
+#define QPB_RECYCLE_PROJECT 1
 #endif
 
 #define QPB_RECYCLE_KMAX (QPB_RECYCLE_K > 0 ? QPB_RECYCLE_K : 1)
@@ -82,7 +100,6 @@ static int recycle_allocated = 0;  /* are recycle_U/recycle_C allocated?     */
 
 /* ------------------------------------------------------------------------- *
  *  Tiny complex-double helpers for the small (k x k) dense linear algebra.
- *  (Kept local so we do not depend on GSL's complex routines.)
  * ------------------------------------------------------------------------- */
 typedef qpb_complex_double cdbl;
 
@@ -124,58 +141,87 @@ to_qc(cdbl a)
 }
 
 /* ------------------------------------------------------------------------- *
- *  Solve (M + sigma I) z = t  for the k-vector z, where M is a k x k
- *  Hermitian (positive-definite for sigma > 0) matrix stored row-major.
- *  Uses a dense Cholesky factorization  H = L L^H .
+ *  Dense Hermitian Cholesky:  H = M + sigma I = L L^H, L lower-triangular.
+ *  (M is k x k Hermitian, positive-definite for sigma > 0, stored row-major.)
  * ------------------------------------------------------------------------- */
 static void
-recycle_solve_shift(cdbl *z, const cdbl *M, double sigma, const cdbl *t, int k)
+recycle_chol_factor(cdbl *L, const cdbl *M, double sigma, int k)
 {
-  cdbl L[QPB_RECYCLE_KMAX*QPB_RECYCLE_KMAX];
-  cdbl y[QPB_RECYCLE_KMAX];
-
-  /* Cholesky:  H = M + sigma I = L L^H, L lower-triangular */
   for(int j=0; j<k; j++)
     {
       double d = M[j*k+j].re + sigma;
-      for(int p=0; p<j; p++)
-	d -= L[j*k+p].re*L[j*k+p].re + L[j*k+p].im*L[j*k+p].im;
+      for(int q=0; q<j; q++)
+	d -= L[j*k+q].re*L[j*k+q].re + L[j*k+q].im*L[j*k+q].im;
       double Ljj = sqrt(d);
       L[j*k+j] = cd(Ljj, 0.);
       for(int i=j+1; i<k; i++)
 	{
 	  cdbl s = M[i*k+j];           /* off-diagonal: sigma only on diagonal */
-	  for(int p=0; p<j; p++)
-	    s = cd_sub(s, cd_mul(L[i*k+p], cd_conj(L[j*k+p])));
+	  for(int q=0; q<j; q++)
+	    s = cd_sub(s, cd_mul(L[i*k+q], cd_conj(L[j*k+q])));
 	  L[i*k+j] = cd_scale(s, 1.0/Ljj);
 	}
     }
+}
 
-  /* forward solve L y = t */
+/* Solve L L^H z = t given the Cholesky factor L. */
+static void
+recycle_chol_solve(cdbl *z, const cdbl *L, const cdbl *t, int k)
+{
+  cdbl y[QPB_RECYCLE_KMAX];
   for(int i=0; i<k; i++)
     {
       cdbl s = t[i];
-      for(int p=0; p<i; p++)
-	s = cd_sub(s, cd_mul(L[i*k+p], y[p]));
+      for(int q=0; q<i; q++)
+	s = cd_sub(s, cd_mul(L[i*k+q], y[q]));
       y[i] = cd_scale(s, 1.0/L[i*k+i].re);
     }
-
-  /* back solve L^H z = y */
   for(int i=k-1; i>=0; i--)
     {
       cdbl s = y[i];
-      for(int p=i+1; p<k; p++)
-	s = cd_sub(s, cd_mul(cd_conj(L[p*k+i]), z[p]));
+      for(int q=i+1; q<k; q++)
+	s = cd_sub(s, cd_mul(cd_conj(L[q*k+i]), z[q]));
       z[i] = cd_scale(s, 1.0/L[i*k+i].re);
     }
 }
 
+/* Solve (M + sigma I) z = t  (factor + solve in one shot). */
+static void
+recycle_solve_shift(cdbl *z, const cdbl *M, double sigma, const cdbl *t, int k)
+{
+  cdbl L[QPB_RECYCLE_KMAX*QPB_RECYCLE_KMAX];
+  recycle_chol_factor(L, M, sigma, k);
+  recycle_chol_solve(z, L, t, k);
+}
+
 /* ------------------------------------------------------------------------- *
- *  Build the recycle subspace U (and C = A U, M = U^dag C) by running a
- *  Lanczos eigensolver with full re-orthogonalization on  A = (g5 D)(g5 D),
- *  diagonalizing the resulting tridiagonal matrix, lifting the k lowest Ritz
- *  vectors, and orthonormalizing them.  Uses the SAME dslash operator that
- *  the solve uses, so the deflation is consistent with the systems solved.
+ *  Deflated search-direction projection (change (2)):
+ *      p <- p - U (H^0)^{-1} U^dag (A' p),
+ *  with H^0 = M + sigma0 I prefactored as L0, and
+ *      U^dag(A' p) = C^dag p + sigma0 (U^dag p)        (A Hermitian).
+ *  No dslash; cost O(N k).
+ * ------------------------------------------------------------------------- */
+static void
+recycle_project(qpb_spinor_field pvec, const cdbl *L0, double sigma0, int k)
+{
+  cdbl g[QPB_RECYCLE_KMAX], z[QPB_RECYCLE_KMAX];
+  for(int a=0; a<k; a++)
+    {
+      cdbl cdotp, udotp;
+      qpb_spinor_xdoty(&cdotp, recycle_C[a], pvec);  /* C_a^dag p */
+      qpb_spinor_xdoty(&udotp, recycle_U[a], pvec);  /* U_a^dag p */
+      g[a] = cd(cdotp.re + sigma0*udotp.re, cdotp.im + sigma0*udotp.im);
+    }
+  recycle_chol_solve(z, L0, g, k);
+  for(int a=0; a<k; a++)
+    qpb_spinor_axpy(pvec, to_qc(cd_scale(z[a], -1.0)), recycle_U[a], pvec);
+}
+
+/* ------------------------------------------------------------------------- *
+ *  Build the recycle subspace U (and C = A U, M = U^dag C) by Lanczos with
+ *  full re-orthogonalization on A = (g5 D)(g5 D), diagonalizing the resulting
+ *  tridiagonal, lifting the k lowest Ritz vectors, and orthonormalizing them.
+ *  Uses the SAME dslash operator as the solve.
  * ------------------------------------------------------------------------- */
 static int
 recycle_build(void (*dslash_func)(qpb_spinor_field, qpb_spinor_field, void **),
@@ -448,6 +494,10 @@ qpb_mscongrad(qpb_spinor_field *x, qpb_spinor_field b, void * gauge,
   qpb_double mass = 1./(2.*kappa) - 4.;
   void (* dslash_func)(qpb_spinor_field, qpb_spinor_field, void **) = NULL;
 
+  /* deflation state for this solve */
+  int do_project = 0;
+  cdbl L0[QPB_RECYCLE_KMAX*QPB_RECYCLE_KMAX];   /* Cholesky of H^0 = M + sigma0 I */
+
   /* set boundary condition in time
      !!! currently not implemented for diagonal links !!! */
   void * gauge_bc_ptr;
@@ -508,7 +558,7 @@ qpb_mscongrad(qpb_spinor_field *x, qpb_spinor_field b, void * gauge,
   if(recycle_built && recycle_k > 0)
     {
       /*
-       * ---- Deflated initial guess (init-CG, change (1) of the method) ----
+       * ---- (1) Deflated initial guess ----
        *
        *   t      = U^dag b
        *   x^j_0  = U (M + sigma_j I)^{-1} t          for every shift j
@@ -550,6 +600,18 @@ qpb_mscongrad(qpb_spinor_field *x, qpb_spinor_field b, void * gauge,
       qpb_spinor_xeqy(p, r);
       for(int s=0; s<ns; s++)
 	qpb_spinor_xeqy(p_s[s], r);
+
+      /*
+       * ---- (2) Deflated search direction setup ----
+       * Prefactor H^0 = M + sigma0 I once, and project the initial base
+       * search direction p0 into (A'U)^perp.
+       */
+      if(QPB_RECYCLE_PROJECT)
+	{
+	  do_project = 1;
+	  recycle_chol_factor(L0, recycle_M, sigmas[0], k);
+	  recycle_project(p, L0, sigmas[0], k);
+	}
     }
   else
     {
@@ -573,8 +635,8 @@ qpb_mscongrad(qpb_spinor_field *x, qpb_spinor_field b, void * gauge,
   qpb_spinor_xdotx(&res_norm, r);
 
   if(recycle_built && recycle_k > 0)
-    print(" Recycle: deflated initial relative residual = %e\n",
-	  res_norm / b_norm);
+    print(" Recycle: deflated initial relative residual = %e, projection = %s\n",
+	  res_norm / b_norm, do_project ? "ON" : "OFF");
 
   /*
      Tracks whether we've converged for each
@@ -664,6 +726,14 @@ qpb_mscongrad(qpb_spinor_field *x, qpb_spinor_field b, void * gauge,
 	}
 
       qpb_spinor_axpy(p, alpha, p, r);
+
+      /*
+       * (2) Deflated search direction: project the updated base p back into
+       * (A'U)^perp.  No dslash; cost O(N k).
+       */
+      if(do_project)
+	recycle_project(p, L0, sigmas[0], recycle_k);
+
       if(iters%n_echo == 0)
 	print(" \titers = %8d, res = %e\n", iters, res_norm / b_norm);
 
