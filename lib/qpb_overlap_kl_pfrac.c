@@ -16,7 +16,7 @@
 #include <math.h>
 
 /*
-  ov_temp_vecs layout (22 vectors total):
+  ov_temp_vecs layout (24 vectors total):
 
    Apply scratch (transient; clobbered on every call to the apply functions):
     [ 0]  sum vector for the partial-fraction accumulation
@@ -40,6 +40,13 @@
 
 #define OVERLAP_NUMB_TEMP_VECS 24
 #define MSCG_NUMB_TEMP_VECS    20
+
+/* ---- Experimental level-2 cascaded preconditioning (hard-coded knobs) -------
+   Deliberately compile-time constants, NOT parsed from the input file: flip a
+   value and recompile. Experimental phase — may be removed entirely.            */
+#define SECOND_LAYER_REQUESTED   1      /* 1 = enable L2, 0 = disable           */
+#define PREC2_MS_EPSILON_FACTOR  5.0    /* L2 MSCG tol = factor x L1 MSCG tol   */
+#define PREC2_MAX_ITER_OFFSET    1      /* L2 BiCGStab cap = L1 cap - offset    */
 
 typedef enum {
   LEVEL_OUTER = 0,
@@ -68,6 +75,7 @@ static int        MS_maximum_solver_iterations;
 /* Preconditioner-solver control: drives inner BiCGStab on D_ov^(n_outer-1). */
 static qpb_double prec_solver_epsilon;
 static int        prec_solver_max_iter;
+static int        prec2_solver_max_iter;
 
 static int        second_layer_on;        /* resolved once at init */
 
@@ -156,13 +164,14 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover,
   
   MS_solver_precision[LEVEL_OUTER] = ms_epsilon;
   MS_solver_precision[LEVEL_PREC]  = prec_ms_epsilon;
-  MS_solver_precision[LEVEL_PREC2] = prec_ms_epsilon;
-  // prec2_solver_epsilon  = prec2_epsilon;
-  // prec2_solver_max_iter = prec2_max_iter;
+  MS_solver_precision[LEVEL_PREC2] = PREC2_MS_EPSILON_FACTOR * prec_ms_epsilon;
+  
   MS_maximum_solver_iterations     = ms_max_iters;
 
   prec_solver_epsilon  = prec_epsilon;
   prec_solver_max_iter = prec_max_iter;
+
+  prec2_solver_max_iter = prec_solver_max_iter - PREC2_MAX_ITER_OFFSET;
 
   /* Populate partial-fraction tables per level. Skip LEVEL_PREC when its
      order is 0 — the kernel path doesn't use shifts/numerators. */
@@ -191,7 +200,10 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover,
   }
 
   /* Second layer is meaningful only if the first layer is actually running. */
-  second_layer_on = (prec_max_iter > 0) && (kl_order[LEVEL_PREC2] >= 0);
+  second_layer_on = SECOND_LAYER_REQUESTED
+                    && (prec_max_iter > 0)
+                    && (kl_order[LEVEL_PREC2] >= 0)
+                    && (prec2_solver_max_iter > 1);
 
   /* MSCG workspace sized for the larger of the KL orders. */
   qpb_mscongrad_init(kl_order[LEVEL_OUTER]);
@@ -339,7 +351,7 @@ preconditioner_bicgstab_2(qpb_spinor_field x, qpb_spinor_field b)
   gamma.re = res_norm; gamma.im = 0.;
   rho = gamma;
 
-  for(iters = 1; iters < prec_solver_max_iter; iters++) {
+  for(iters = 1; iters < prec2_solver_max_iter; iters++) {
     if(res_norm / b_norm <= prec_solver_epsilon)
       break;
 
