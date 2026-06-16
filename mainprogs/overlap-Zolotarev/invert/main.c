@@ -990,7 +990,7 @@ n_spinors=1;
   t = qpb_stop_watch(t);
 
   print("\n");
-  print(" CG done, %d vectors in t = %f sec\n", n_spinors, t);
+  print(" BiCGStab done, %d vectors in t = %f sec\n", n_spinors, t);
   qpb_overlap_Zolotarev_finalize();
 
   if(which_dslash_op == QPB_DSLASH_BRILLOUIN)
