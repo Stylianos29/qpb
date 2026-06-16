@@ -588,6 +588,57 @@ main(int argc, char *argv[])
 	    "Inner solver max iters");
       exit(QPB_PARSER_ERROR);
     }
+  int use_preconditioning;
+  char prec_toggle[256];
+  if(sscanf(qpb_parse("Preconditioning"), "%s", prec_toggle) != 1)
+    {
+      error("error parsing for %s\n", "Preconditioning");
+      exit(QPB_PARSER_ERROR);
+    }
+  if(strcmp(prec_toggle, "yes") == 0)
+    use_preconditioning = 1;
+  else if(strcmp(prec_toggle, "no") == 0)
+    use_preconditioning = 0;
+  else
+    {
+      error("valid options for Preconditioning are yes or no\n");
+      exit(QPB_PARAMETERS_ERROR);
+    }
+
+  /* Defaults leave the library's preconditioning OFF: prec_max_iter == 0
+     resolves to prec_on = 0 inside qpb_overlap_Zolotarev_init(). */
+  qpb_double prec_ms_epsilon = ms_epsilon;
+  int prec_max_iter = 0;
+  if(use_preconditioning)
+    {
+      /* The preconditioner is the order-(n-1) overlap, so it must exist. */
+      if(Zol_order < 2)
+        {
+          error("Preconditioning requires Zolotarev order >= 2, quitting\n");
+          exit(QPB_PARAMETERS_ERROR);
+        }
+      if(sscanf(qpb_parse("Preconditioner inner solver epsilon"), "%lf",
+                &prec_ms_epsilon)!=1)
+        {
+          error("error parsing for %s\n", "Preconditioner inner solver epsilon");
+          exit(QPB_PARSER_ERROR);
+        }
+      if(prec_ms_epsilon <= 0 || prec_ms_epsilon >= 1)
+        {
+          error("Preconditioner inner solver epsilon must be in (0, 1), quitting\n");
+          exit(QPB_PARAMETERS_ERROR);
+        }
+      if(sscanf(qpb_parse("Preconditioner max iters"), "%d", &prec_max_iter)!=1)
+        {
+          error("error parsing for %s\n", "Preconditioner max iters");
+          exit(QPB_PARSER_ERROR);
+        }
+      if(prec_max_iter < 1)
+        {
+          error("only provide positive integer values for Preconditioner max iters, quitting\n");
+          exit(QPB_PARAMETERS_ERROR);
+        }
+    }
   char sol_file[QPB_MAX_STRING];
   if(sscanf(qpb_parse("Solution file"), "%s", sol_file)!=1)
     {
@@ -772,6 +823,15 @@ main(int argc, char *argv[])
   print(" Outer max solver iters = %d\n", outer_max_iters);
   print(" Inner solver epsilon = %e\n", ms_epsilon);
   print(" Inner max solver iters = %d\n", ms_max_iters);
+  if(use_preconditioning)
+    {
+      print(" Preconditioning = yes\n");
+      print(" Preconditioner Zolotarev order = %d\n", Zol_order - 1);
+      print(" Preconditioner inner solver epsilon = %e\n", prec_ms_epsilon);
+      print(" Preconditioner max iters = %d\n", prec_max_iter);
+    }
+  else
+    print(" Preconditioning = no\n");
   qpb_rng_init(seed);
   problem_params.timebc = timebc;
 
@@ -975,22 +1035,24 @@ main(int argc, char *argv[])
   qpb_double t = qpb_stop_watch(0);
 
   qpb_overlap_Zolotarev_init(solver_arg_links, clover_term, Zol_order, \
-                  rho, c_sw, mass, scaling_factor, ms_epsilon, ms_max_iters, \
-                          Lanczos_epsilon, Lanczos_max_iters, delta_max, delta_min);
+                  rho, c_sw, mass, scaling_factor, \
+                  ms_epsilon, prec_ms_epsilon, ms_max_iters, \
+                  prec_max_iter, \
+                  Lanczos_epsilon, Lanczos_max_iters, delta_max, delta_min);
   qpb_double t_overhead = qpb_stop_watch(t);
   print(" Total overhead time: %f sec\n", t_overhead);
 
   for(int i=0; i<n_spinors; i++)
   {
     print("\n");
-    iters = qpb_congrad_overlap_Zolotarev(sol[i], source[i], \
+    iters = qpb_bicgstab_overlap_Zolotarev(sol[i], source[i], \
                                             outer_epsilon, outer_max_iters);
     print(" Done vector = %d / %d, iters = %d\n", i+1, n_spinors, iters);
   }
   t = qpb_stop_watch(t);
 
   print("\n");
-  print(" CG done, %d vectors in t = %f sec\n", n_spinors, t);
+  print(" BiCGStab done, %d vectors in t = %f sec\n", n_spinors, t);
   qpb_overlap_Zolotarev_finalize();
 
   if(which_dslash_op == QPB_DSLASH_BRILLOUIN)
