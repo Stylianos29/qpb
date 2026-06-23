@@ -618,22 +618,27 @@ main(int argc, char *argv[])
           error("Preconditioning requires Zolotarev order >= 2, quitting\n");
           exit(QPB_PARAMETERS_ERROR);
         }
-      if(sscanf(qpb_parse("Preconditioner inner solver epsilon"), "%lf",
+      if(sscanf(qpb_parse("Preconditioner solver epsilon"), "%lf", &prec_epsilon)!=1)
+        {
+        error("error parsing for %s\n",
+          "Preconditioner solver epsilon");
+          exit(QPB_PARSER_ERROR);
+        }
+      if(prec_epsilon <= 0 || prec_epsilon >= 1)
+      {
+        error("Preconditioner solver epsilon must be in (0, 1), quitting\n");
+        exit(QPB_PARAMETERS_ERROR);
+      }
+      if(sscanf(qpb_parse("Preconditioner MSCG epsilon"), "%lf",
                 &prec_ms_epsilon)!=1)
         {
-          error("error parsing for %s\n", "Preconditioner inner solver epsilon");
+          error("error parsing for %s\n", "Preconditioner MSCG epsilon");
           exit(QPB_PARSER_ERROR);
         }
       if(prec_ms_epsilon <= 0 || prec_ms_epsilon >= 1)
         {
-          error("Preconditioner inner solver epsilon must be in (0, 1), quitting\n");
+          error("Preconditioner MSCG epsilon must be in (0, 1), quitting\n");
           exit(QPB_PARAMETERS_ERROR);
-        }
-      if(sscanf(qpb_parse("Preconditioner solver epsilon"), "%lf", &prec_epsilon)!=1)
-        {
-          error("error parsing for %s\n",
-          "Preconditioner solver epsilon");
-          exit(QPB_PARSER_ERROR);
         }
       if(sscanf(qpb_parse("Preconditioner max iters"), "%d", &prec_max_iter)!=1)
         {
@@ -834,7 +839,7 @@ main(int argc, char *argv[])
     {
       print(" Preconditioning = yes\n");
       print(" Preconditioner Zolotarev order = %d\n", Zol_order - 1);
-      print(" Preconditioner inner solver epsilon = %e\n", prec_ms_epsilon);
+      print(" Preconditioner MSCG epsilon = %e\n", prec_ms_epsilon);
       print(" Preconditioner solver epsilon = %e\n", prec_epsilon);
       print(" Preconditioner max iters = %d\n", prec_max_iter);
     }
