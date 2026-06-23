@@ -7,7 +7,7 @@
 void qpb_overlap_Zolotarev_init(void *, qpb_clover_term, int, qpb_double,
      qpb_double, qpb_double, qpb_double,
      qpb_double /*ms_epsilon*/, qpb_double /*prec_ms_epsilon*/, int /*ms_max_iter*/,
-     int /*prec_max_iter*/,
+     qpb_double /*prec_epsilon*/, int /*prec_max_iter*/,
      qpb_double /*Lanczos_epsilon*/, int /*Lanczos_max_iters*/,
      qpb_double /*delta_max*/, qpb_double /*delta_min*/);
 int  qpb_bicgstab_overlap_Zolotarev(qpb_spinor_field, qpb_spinor_field, qpb_double, int);

@@ -608,6 +608,7 @@ main(int argc, char *argv[])
   /* Defaults leave the library's preconditioning OFF: prec_max_iter == 0
      resolves to prec_on = 0 inside qpb_overlap_Zolotarev_init(). */
   qpb_double prec_ms_epsilon = ms_epsilon;
+  qpb_double prec_epsilon = 0.;     /* preconditioner BiCGStab rel. residual */
   int prec_max_iter = 0;
   if(use_preconditioning)
     {
@@ -627,6 +628,12 @@ main(int argc, char *argv[])
         {
           error("Preconditioner inner solver epsilon must be in (0, 1), quitting\n");
           exit(QPB_PARAMETERS_ERROR);
+        }
+      if(sscanf(qpb_parse("Preconditioner solver epsilon"), "%lf", &prec_epsilon)!=1)
+        {
+          error("error parsing for %s\n",
+          "Preconditioner solver epsilon");
+          exit(QPB_PARSER_ERROR);
         }
       if(sscanf(qpb_parse("Preconditioner max iters"), "%d", &prec_max_iter)!=1)
         {
@@ -828,6 +835,7 @@ main(int argc, char *argv[])
       print(" Preconditioning = yes\n");
       print(" Preconditioner Zolotarev order = %d\n", Zol_order - 1);
       print(" Preconditioner inner solver epsilon = %e\n", prec_ms_epsilon);
+      print(" Preconditioner solver epsilon = %e\n", prec_epsilon);
       print(" Preconditioner max iters = %d\n", prec_max_iter);
     }
   else
@@ -1037,7 +1045,7 @@ main(int argc, char *argv[])
   qpb_overlap_Zolotarev_init(solver_arg_links, clover_term, Zol_order, \
                   rho, c_sw, mass, scaling_factor, \
                   ms_epsilon, prec_ms_epsilon, ms_max_iters, \
-                  prec_max_iter, \
+                  prec_epsilon, prec_max_iter, \
                   Lanczos_epsilon, Lanczos_max_iters, delta_max, delta_min);
   qpb_double t_overhead = qpb_stop_watch(t);
   print(" Total overhead time: %f sec\n", t_overhead);

@@ -81,12 +81,17 @@ static qpb_double   constant_term      [LEVEL_COUNT];
 static qpb_double   MS_solver_precision[LEVEL_COUNT];
 static int          MS_maximum_solver_iterations;
 
-/* Preconditioner-solver control. The inner BiCGStab runs a FIXED number of
-   steps (no residual-based early exit), so the preconditioner is a constant
-   linear operator across outer iterations (stationary). Its MSCG tolerance is
+/* Preconditioner-solver control. The inner BiCGStab now iterates until its
+   relative residual ||r||/||b|| <= prec_solver_epsilon, capped at
+   prec_solver_max_iter steps (a hard safety net, NOT the stopping criterion).
+   Because the iteration count depends on the right-hand side, the
+   preconditioner is non-stationary; the outer plain BiCGStab tolerates this
+   in practice provided prec_solver_epsilon is tight enough. The MSCG accuracy
+   (sign-function tolerance inside each operator apply) is
    MS_solver_precision[LEVEL_PREC]. */
-static int          prec_solver_max_iter;
-static int          prec_on;             /* resolved once at init */
+static qpb_double   prec_solver_epsilon;     /* inner stopping criterion */
+static int          prec_solver_max_iter;    /* inner hard safety cap    */
+static int          prec_on;                 /* resolved once at init    */
 
 
 /* -------------- SCALAR FUNCTIONS -------------- */
@@ -314,7 +319,7 @@ qpb_overlap_Zolotarev_init(void * gauge, qpb_clover_term clover, \
           int Zol_iters, qpb_double rho, \
           qpb_double c_sw, qpb_double mass, qpb_double scaling_factor, \
           qpb_double ms_epsilon, qpb_double prec_ms_epsilon, int ms_max_iter, \
-          int prec_max_iter, \
+          qpb_double prec_epsilon, int prec_max_iter, \
           qpb_double Lanczos_epsilon, int Lanczos_max_iters, \
           qpb_double delta_max, qpb_double delta_min)
 {
@@ -424,6 +429,7 @@ qpb_overlap_Zolotarev_init(void * gauge, qpb_clover_term clover, \
     MS_solver_precision[LEVEL_PREC]  = prec_ms_epsilon;
     MS_maximum_solver_iterations     = ms_max_iter;
 
+    prec_solver_epsilon  = prec_epsilon;
     prec_solver_max_iter = prec_max_iter;
 
     /* Populate the partial-fraction tables per level from the shared spectral
@@ -438,9 +444,10 @@ qpb_overlap_Zolotarev_init(void * gauge, qpb_clover_term clover, \
       build_zolotarev_tables(lvl, Zolotarev_order[lvl], scaling_factor);
     }
 
-    /* Preconditioning is active only if requested (positive iteration count)
-       and the prec order is valid (Zol_iters >= 2). */
-    prec_on = (prec_solver_max_iter > 0) && (Zolotarev_order[LEVEL_PREC] >= 1);
+    /* Preconditioning is active only if requested (positive tolerance AND a
+       positive safety cap) and the prec order is valid (Zol_iters >= 2). */
+    prec_on = (prec_solver_epsilon > 0) && (prec_solver_max_iter > 0) \
+              && (Zolotarev_order[LEVEL_PREC] >= 1);
 
     /* MSCG workspace sized for the larger (outer) Zolotarev order. */
     qpb_mscongrad_init(Zolotarev_order[LEVEL_OUTER]);
@@ -699,10 +706,12 @@ qpb_congrad_overlap_Zolotarev(qpb_spinor_field x, qpb_spinor_field b, \
 static void
 preconditioner_bicgstab(qpb_spinor_field x, qpb_spinor_field b)
 {
-  /* Fixed-iteration (stationary) BiCGStab on D_ov^(n-1): runs exactly
-     prec_solver_max_iter steps with NO residual-based early exit, so the
-     preconditioner is a constant linear operator across the outer iterations.
-     Its MSCG accuracy is MS_solver_precision[LEVEL_PREC]. */
+  /* Right-preconditioner inner solve on D_ov^(n-1): iterates until the
+     relative residual ||r||/||b|| <= prec_solver_epsilon, OR until the hard
+     safety cap prec_solver_max_iter is reached, whichever comes first. The
+     iteration count therefore varies with the right-hand side (non-stationary
+     preconditioner; see the note at the prec_solver_* declarations). Its MSCG
+     accuracy is MS_solver_precision[LEVEL_PREC]. */
   qpb_spinor_field r0_hat = ov_temp_vecs[14];
   qpb_spinor_field r      = ov_temp_vecs[15];
   qpb_spinor_field p      = ov_temp_vecs[16];
@@ -711,7 +720,10 @@ preconditioner_bicgstab(qpb_spinor_field x, qpb_spinor_field b)
 
   qpb_complex_double alpha = {1, 0}, omega = {1, 0};
   qpb_complex_double beta, gamma, rho, zeta;
+  qpb_double res_norm, b_norm;
+  int iters;
 
+  qpb_spinor_xdotx(&b_norm, b);
   qpb_spinor_field_set_zero(x);
   qpb_spinor_field_set_zero(p);
   qpb_spinor_field_set_zero(u);
@@ -719,10 +731,13 @@ preconditioner_bicgstab(qpb_spinor_field x, qpb_spinor_field b)
   qpb_spinor_xeqy(r, b);            /* r0 = b - D_ov^prec·x0 = b */
   qpb_spinor_xeqy(r0_hat, r);
 
-  qpb_spinor_xdotx(&gamma.re, r); gamma.im = 0.;
+  qpb_spinor_xdotx(&res_norm, r);
+  gamma.re = res_norm; gamma.im = 0.;
   rho = gamma;
 
-  for(int iters = 0; iters < prec_solver_max_iter; iters++) {
+  for(iters = 0; iters < prec_solver_max_iter; iters++) {
+    if(res_norm / b_norm <= prec_solver_epsilon) break;
+
     qpb_spinor_xdoty(&gamma, r0_hat, r);
     beta = CMUL(CDEV(gamma, rho), CDEV(alpha, omega));
 
@@ -752,7 +767,17 @@ preconditioner_bicgstab(qpb_spinor_field x, qpb_spinor_field b)
     omega = CNEGATE(omega);
     qpb_spinor_axpy(r, omega, v, r);     /* r -= omega·v                 */
     omega = CNEGATE(omega);
+
+    qpb_spinor_xdotx(&res_norm, r);      /* recurrence residual for exit test */
   }
+
+  /* Explicit final (true) residual, reported for diagnostics — the
+     recurrence residual used in the exit test can drift from b - D_ov^prec·x. */
+  apply_overlap(LEVEL_PREC, u, x);
+  qpb_spinor_xmy(r, b, u);
+  qpb_spinor_xdotx(&res_norm, r);
+  print(" \t\tpreconditioner BiCGStab: %d iters, relative residual = %e\n",
+        iters, res_norm / b_norm);
 
   return;
 }
