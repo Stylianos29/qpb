@@ -44,7 +44,7 @@
 /* ---- Experimental level-2 cascaded preconditioning (hard-coded knobs) -------
    Deliberately compile-time constants, NOT parsed from the input file: flip a
    value and recompile. Experimental phase — may be removed entirely.            */
-#define SECOND_LAYER_REQUESTED   1      /* 1 = enable L2, 0 = disable           */
+#define SECOND_LAYER_REQUESTED   0      /* 1 = enable L2, 0 = disable           */
 #define PREC2_MS_EPSILON_FACTOR  5.0    /* L2 MSCG tol = factor x L1 MSCG tol   */
 #define PREC2_MAX_ITER_OFFSET    1      /* L2 BiCGStab cap = L1 cap - offset    */
 
