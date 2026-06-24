@@ -736,7 +736,7 @@ preconditioner_bicgstab(qpb_spinor_field x, qpb_spinor_field b)
   rho = gamma;
 
   for(iters = 0; iters < prec_solver_max_iter; iters++) {
-    if(res_norm / b_norm <= prec_solver_epsilon*prec_solver_epsilon) break;
+    if(res_norm / b_norm <= prec_solver_epsilon) break;
 
     qpb_spinor_xdoty(&gamma, r0_hat, r);
     beta = CMUL(CDEV(gamma, rho), CDEV(alpha, omega));
