@@ -22,6 +22,8 @@
 #include <gsl/gsl_eigen.h>
 #include <gsl/gsl_sort.h>
 #include <gsl/gsl_sort_vector.h>
+#include <gsl/gsl_complex.h>
+#include <gsl/gsl_complex_math.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -30,11 +32,12 @@
 
 
 /*
-  ov_temp_vecs layout (19 vectors total):
+  ov_temp_vecs layout (20 vectors total):
 
    Apply scratch (transient; clobbered on every call to the apply functions,
    shared across all levels since apply_overlap is atomic):
-    [ 0]  sum vector for the partial-fraction accumulation
+    [ 0]  sum vector for the partial-fraction accumulation (also reused as the
+          low-mode scratch inside apply_gamma5_sign, after D_op has consumed it)
     [ 1]  z vector (D·sum in apply_overlap)
 
    CG-on-normal-equations solver state (qpb_congrad_overlap_Zolotarev, unchanged):
@@ -47,13 +50,63 @@
    Inner (preconditioner) BiCGStab state on D_ov^(n-1):
     [14]  r0_hat   [15]  r   [16]  p   [17]  u   [18]  v
 
+   Sign-function deflation scratch (transient apply scratch, like [0]/[1]):
+    [19]  P_high·x  = x - V V^dag x   (the deflated MSCG right-hand side)
+
    The CG block [2-6] and the BiCGStab blocks [7-18] are never live at the same
    time (they are mutually-exclusive top-level entry points), but are kept
    disjoint here for clarity.
 */
 
-#define OVERLAP_NUMB_TEMP_VECS 19
+#define OVERLAP_NUMB_TEMP_VECS 20
 #define MSCG_NUMB_TEMP_VECS 20
+
+
+/* ========================================================================= *
+ *  Sign-function low-mode deflation
+ * ========================================================================= *
+ *
+ *  The overlap sign function sign(X), X = gamma5 (D - rho), is hard precisely
+ *  because of the smallest eigenvalues of X (equivalently, of X^2): the
+ *  Zolotarev rational R(X^2) ~ (X^2)^{-1/2} must resolve them, which is what
+ *  makes the inner multi-shift CG expensive and forces a high rational order.
+ *
+ *  We deflate those low modes OUT OF THE OPERATOR (not the linear solve):
+ *
+ *      sign(X) x = V sign(W) (V^dag x)          [low modes, treated exactly]
+ *                + X R(X^2) (x - V V^dag x)      [rational on the complement]
+ *
+ *  where V holds the k lowest eigenvectors of X^2 (an X-invariant subspace),
+ *  and W = V^dag X V is the k x k Hermitian projection of the (signed) kernel
+ *  onto that subspace.  sign(W) = Q sign(Theta) Q^dag is computed from the
+ *  dense eigendecomposition of W.  This is the robust way to get the signs:
+ *  each X^2 eigenvalue lambda^2 is doubly degenerate (from +/-lambda of the
+ *  Hermitian X), so an individual X^2 eigenvector has no well-defined sign;
+ *  diagonalizing W in the subspace resolves it correctly.
+ *
+ *  Because we clean only the RIGHT-HAND SIDE (P_high x has no low-mode
+ *  content), the multi-shift CG and its zeta-recurrence are untouched: every
+ *  Zolotarev pole still converges to its full tolerance (no residual floor).
+ *  The gain is pure conditioning: the effective condition number the MSCG
+ *  sees drops from lambda_max^2/lambda_min^2 to lambda_max^2/theta[k], so each
+ *  sign evaluation (hundreds per inversion, x12 RHS) costs far fewer inner
+ *  iterations.  The k eigenvectors are built once per gauge configuration and
+ *  reused across every sign evaluation of BOTH the outer (order-n) and the
+ *  preconditioner (order-(n-1)) overlap, since they depend only on X.
+ *
+ *  Compile-time controls (override e.g. with -DQPB_DEFL_K=0 for the baseline):
+ *      QPB_DEFL_K : number of low modes carried in V (0 disables deflation).
+ *      QPB_DEFL_M : Lanczos search dimension used to build V (>= K).
+ * ========================================================================= */
+#ifndef QPB_DEFL_K
+#define QPB_DEFL_K 20
+#endif
+#ifndef QPB_DEFL_M
+#define QPB_DEFL_M 64
+#endif
+#define QPB_DEFL_KMAX (QPB_DEFL_K > 0 ? QPB_DEFL_K : 1)
+
+typedef qpb_complex_double cdbl;
 
 
 typedef enum {
@@ -92,6 +145,12 @@ static int          MS_maximum_solver_iterations;
 static qpb_double   prec_solver_epsilon;     /* inner stopping criterion */
 static int          prec_solver_max_iter;    /* inner hard safety cap    */
 static int          prec_on;                 /* resolved once at init    */
+
+/* Sign-function deflation subspace (built once per configuration). */
+static qpb_spinor_field defl_V[QPB_DEFL_KMAX];                  /* low eigvecs of X^2 */
+static cdbl             defl_signW[QPB_DEFL_KMAX*QPB_DEFL_KMAX]; /* sign(V^dag X V)   */
+static int              defl_k = 0;          /* usable modes (0 => disabled) */
+static int              defl_built = 0;      /* has V been built for this config? */
 
 
 /* -------------- SCALAR FUNCTIONS -------------- */
@@ -314,6 +373,274 @@ build_zolotarev_tables(overlap_level_t lvl, int order, qpb_double scaling_factor
 
 /* ------------------------ MATRIX-VECTOR FUNCTIONS ------------------------ */
 
+INLINE void
+D_op(qpb_spinor_field y, qpb_spinor_field x)
+{
+  /* Implements D - rho*I */
+
+  void *dslash_args[4];
+
+  dslash_args[0] = ov_params.gauge_ptr;
+  dslash_args[1] = &ov_params.m_bare;
+  dslash_args[2] = &ov_params.clover;
+  dslash_args[3] = &ov_params.c_sw;
+
+  ov_params.dslash_op(y, x, dslash_args);
+
+  return;
+}
+
+
+INLINE void
+X_op(qpb_spinor_field y, qpb_spinor_field x)
+{
+  /* Hermitian Wilson/Brillouin kernel  X = gamma5 (D - rho).  Same operator
+     the inner MSCG squares; used here to build the deflation subspace and its
+     projected sign. */
+
+  void *dslash_args[4];
+
+  dslash_args[0] = ov_params.gauge_ptr;
+  dslash_args[1] = &ov_params.m_bare;
+  dslash_args[2] = &ov_params.clover;
+  dslash_args[3] = &ov_params.c_sw;
+
+  ov_params.g5_dslash_op(y, x, dslash_args);
+
+  return;
+}
+
+
+/* ------------------------- DEFLATION SUBSPACE BUILD ---------------------- *
+ *  Build V (the k lowest eigenvectors of A = X^2) by a Lanczos pass with full
+ *  re-orthogonalization, lifting the k lowest Ritz vectors and orthonormalizing
+ *  them; then form W = V^dag X V (k x k Hermitian) and its matrix sign,
+ *  sign(W) = Q sign(Theta) Q^dag.  All persistent state (defl_V, defl_signW)
+ *  is filled here, once per gauge configuration.
+ * ------------------------------------------------------------------------- */
+static void
+build_deflation_subspace(void)
+{
+  int k = QPB_DEFL_K;
+  int m = QPB_DEFL_M;
+  if(k <= 0)
+    return;
+  if(m < k)
+    m = k;
+
+  print(" Deflation: building %d low modes of X^2 via Lanczos (m=%d)...\n", k, m);
+  qpb_double tb = qpb_stop_watch(0);
+
+  /* Lanczos vectors + scratch */
+  qpb_spinor_field *lv = qpb_alloc(sizeof(qpb_spinor_field)*m);
+  for(int i=0; i<m; i++)
+    {
+      lv[i] = qpb_spinor_field_init();
+      qpb_spinor_field_set_zero(lv[i]);
+    }
+  qpb_spinor_field av  = qpb_spinor_field_init();
+  qpb_spinor_field tmp = qpb_spinor_field_init();
+  qpb_spinor_field_set_zero(av);
+  qpb_spinor_field_set_zero(tmp);
+
+  double *alpha = qpb_alloc(sizeof(double)*m);
+  double *beta  = qpb_alloc(sizeof(double)*m);
+
+  /* v_0 = normalized random vector */
+  qpb_spinor_field_set_random(lv[0]);
+  qpb_double nrm;
+  qpb_spinor_xdotx(&nrm, lv[0]);
+  qpb_spinor_ax(lv[0], (qpb_complex){1./sqrt(nrm), 0.}, lv[0]);
+
+  for(int i=0; i<m; i++)
+    {
+      /* av = A v_i = X (X v_i) */
+      X_op(tmp, lv[i]);
+      X_op(av,  tmp);
+
+      if(i > 0)
+	qpb_spinor_axpy(av, (qpb_complex){-beta[i-1], 0.}, lv[i-1], av);
+
+      qpb_complex_double a;
+      qpb_spinor_xdoty(&a, lv[i], av);
+      alpha[i] = a.re;
+      qpb_spinor_axpy(av, (qpb_complex){-alpha[i], 0.}, lv[i], av);
+
+      /* full re-orthogonalization (twice, for numerical stability) */
+      for(int pass=0; pass<2; pass++)
+	for(int j=0; j<=i; j++)
+	  {
+	    qpb_complex_double c;
+	    qpb_spinor_xdoty(&c, lv[j], av);
+	    qpb_spinor_axpy(av, (qpb_complex){-c.re, -c.im}, lv[j], av);
+	  }
+
+      qpb_double bb;
+      qpb_spinor_xdotx(&bb, av);
+      beta[i] = sqrt(bb);
+
+      if(i < m-1)
+	{
+	  if(beta[i] < 1e-12)
+	    {
+	      /* invariant subspace found -- restart with a fresh random vector
+		 (it gets re-orthogonalized at the next step) */
+	      qpb_spinor_field_set_random(lv[i+1]);
+	    }
+	  else
+	    {
+	      qpb_spinor_ax(lv[i+1], (qpb_complex){1./beta[i], 0.}, av);
+	    }
+	}
+    }
+
+  /* diagonalize the symmetric tridiagonal T (alpha[0..m-1], beta[0..m-2]) */
+  gsl_matrix *T = gsl_matrix_calloc(m, m);
+  for(int i=0; i<m; i++)
+    gsl_matrix_set(T, i, i, alpha[i]);
+  for(int i=0; i<m-1; i++)
+    {
+      gsl_matrix_set(T, i, i+1, beta[i]);
+      gsl_matrix_set(T, i+1, i, beta[i]);
+    }
+  gsl_vector *eval = gsl_vector_alloc(m);
+  gsl_matrix *evec = gsl_matrix_alloc(m, m);
+  gsl_eigen_symmv_workspace *ws = gsl_eigen_symmv_alloc(m);
+  gsl_eigen_symmv(T, eval, evec, ws);
+  gsl_eigen_symmv_sort(eval, evec, GSL_EIGEN_SORT_VAL_ASC);
+  gsl_eigen_symmv_free(ws);
+
+  /* lift the k lowest Ritz vectors:  V_c = sum_i evec[i][c] v_i */
+  for(int c=0; c<k; c++)
+    {
+      defl_V[c] = qpb_spinor_field_init();
+      qpb_spinor_field_set_zero(defl_V[c]);
+      for(int i=0; i<m; i++)
+	{
+	  double sic = gsl_matrix_get(evec, i, c);
+	  qpb_spinor_axpy(defl_V[c], (qpb_complex){sic, 0.}, lv[i], defl_V[c]);
+	}
+    }
+
+  gsl_matrix_free(T);
+  gsl_vector_free(eval);
+  gsl_matrix_free(evec);
+
+  /* modified Gram-Schmidt: enforce V^dag V = I */
+  for(int a=0; a<k; a++)
+    {
+      for(int b=0; b<a; b++)
+	{
+	  qpb_complex_double c;
+	  qpb_spinor_xdoty(&c, defl_V[b], defl_V[a]);
+	  qpb_spinor_axpy(defl_V[a], (qpb_complex){-c.re, -c.im},
+			  defl_V[b], defl_V[a]);
+	}
+      qpb_double n2;
+      qpb_spinor_xdotx(&n2, defl_V[a]);
+      qpb_spinor_ax(defl_V[a], (qpb_complex){1./sqrt(n2), 0.}, defl_V[a]);
+    }
+
+  /* Ritz residuals ||X^2 V_c - theta_c V_c|| : accuracy check for the subspace.
+     If the higher modes' residuals are loose, increase QPB_DEFL_M. */
+  print(" Deflation: X^2 low Ritz values / residuals (post-orthonormalization):\n");
+  for(int c=0; c<k; c++)
+    {
+      X_op(tmp, defl_V[c]);
+      X_op(av,  tmp);                        /* av = X^2 V_c */
+      qpb_complex_double th;
+      qpb_spinor_xdoty(&th, defl_V[c], av);  /* theta_c = <V_c, X^2 V_c> */
+      qpb_spinor_axpy(av, (qpb_complex){-th.re, 0.}, defl_V[c], av);
+      qpb_double rr;
+      qpb_spinor_xdotx(&rr, av);
+      print("   mode %2d: theta = %+e, ||res|| = %e\n", c, th.re, sqrt(rr));
+    }
+
+  /* W = V^dag X V  (k x k Hermitian).  One kernel apply per column. */
+  gsl_matrix_complex *Wm = gsl_matrix_complex_alloc(k, k);
+  for(int j=0; j<k; j++)
+    {
+      X_op(tmp, defl_V[j]);                  /* tmp = X V_j */
+      for(int i=0; i<k; i++)
+	{
+	  qpb_complex_double wij;
+	  qpb_spinor_xdoty(&wij, defl_V[i], tmp);
+	  gsl_matrix_complex_set(Wm, i, j, gsl_complex_rect(wij.re, wij.im));
+	}
+    }
+
+  /* W = Q Theta Q^dag  (Theta real, signed kernel eigenvalues in the subspace) */
+  gsl_vector *th = gsl_vector_alloc(k);
+  gsl_matrix_complex *Q = gsl_matrix_complex_alloc(k, k);
+  gsl_eigen_hermv_workspace *wsh = gsl_eigen_hermv_alloc(k);
+  gsl_eigen_hermv(Wm, th, Q, wsh);
+  gsl_eigen_hermv_free(wsh);
+
+  /* sign(W)[i][l] = sum_m Q[i][m] sign(theta_m) conj(Q[l][m]) */
+  for(int i=0; i<k; i++)
+    for(int l=0; l<k; l++)
+      {
+	double sr = 0., si = 0.;
+	for(int mm=0; mm<k; mm++)
+	  {
+	    double sg = (gsl_vector_get(th, mm) >= 0.) ? 1. : -1.;
+	    gsl_complex qim = gsl_matrix_complex_get(Q, i, mm);
+	    gsl_complex qlm = gsl_matrix_complex_get(Q, l, mm);
+	    /* qim * conj(qlm) */
+	    double pr = GSL_REAL(qim)*GSL_REAL(qlm) + GSL_IMAG(qim)*GSL_IMAG(qlm);
+	    double pi = GSL_IMAG(qim)*GSL_REAL(qlm) - GSL_REAL(qim)*GSL_IMAG(qlm);
+	    sr += sg*pr;
+	    si += sg*pi;
+	  }
+	defl_signW[i*k+l] = (cdbl){sr, si};
+      }
+
+  print(" Deflation: signed kernel eigenvalues (H_W) in the low subspace:\n");
+  for(int mm=0; mm<k; mm++)
+    print("   lambda[%2d] = %+e\n", mm, gsl_vector_get(th, mm));
+
+  /* sanity: ||sign(W)^2 - I||_F  (should be ~0; sign is an involution) */
+  {
+    double dev = 0.;
+    for(int i=0; i<k; i++)
+      for(int l=0; l<k; l++)
+	{
+	  double sr = 0., si = 0.;
+	  for(int mm=0; mm<k; mm++)
+	    {
+	      cdbl a = defl_signW[i*k+mm];
+	      cdbl b = defl_signW[mm*k+l];
+	      sr += a.re*b.re - a.im*b.im;
+	      si += a.re*b.im + a.im*b.re;
+	    }
+	  double dr = sr - (i==l ? 1. : 0.);
+	  dev += dr*dr + si*si;
+	}
+    print(" Deflation: ||sign(W)^2 - I||_F = %e\n", sqrt(dev));
+  }
+
+  gsl_matrix_complex_free(Wm);
+  gsl_vector_free(th);
+  gsl_matrix_complex_free(Q);
+
+  for(int i=0; i<m; i++)
+    qpb_spinor_field_finalize(lv[i]);
+  free(lv);
+  qpb_spinor_field_finalize(av);
+  qpb_spinor_field_finalize(tmp);
+  free(alpha);
+  free(beta);
+
+  defl_k = k;
+  defl_built = 1;
+
+  tb = qpb_stop_watch(tb);
+  print(" Deflation: subspace ready (k=%d), build t = %g secs\n", k, tb);
+
+  return;
+}
+
+
 void
 qpb_overlap_Zolotarev_init(void * gauge, qpb_clover_term clover, \
           int Zol_iters, qpb_double rho, \
@@ -449,6 +776,13 @@ qpb_overlap_Zolotarev_init(void * gauge, qpb_clover_term clover, \
     prec_on = (prec_solver_epsilon > 0) && (prec_solver_max_iter > 0) \
               && (Zolotarev_order[LEVEL_PREC] >= 1);
 
+    /* ------------------- sign-function deflation subspace ------------------ *
+       Build V (lowest k eigenvectors of X^2) and sign(V^dag X V) once, here.
+       Reused by apply_gamma5_sign() at BOTH levels (they share X).  Disabled
+       at compile time with -DQPB_DEFL_K=0, which reproduces the plain path. */
+    if(QPB_DEFL_K > 0)
+      build_deflation_subspace();
+
     /* MSCG workspace sized for the larger (outer) Zolotarev order. */
     qpb_mscongrad_init(Zolotarev_order[LEVEL_OUTER]);
 
@@ -481,23 +815,14 @@ qpb_overlap_Zolotarev_finalize()
     if(shifts    [lvl]) free(shifts    [lvl]);
   }
 
-  return;
-}
-
-
-INLINE void
-D_op(qpb_spinor_field y, qpb_spinor_field x)
-{
-  /* Implements D - rho*I */
-
-  void *dslash_args[4];
-
-  dslash_args[0] = ov_params.gauge_ptr;
-  dslash_args[1] = &ov_params.m_bare;
-  dslash_args[2] = &ov_params.clover;
-  dslash_args[3] = &ov_params.c_sw;
-
-  ov_params.dslash_op(y, x, dslash_args);
+  /* release the deflation subspace */
+  if(defl_built)
+  {
+    for(int i=0; i<defl_k; i++)
+      qpb_spinor_field_finalize(defl_V[i]);
+    defl_built = 0;
+    defl_k = 0;
+  }
 
   return;
 }
@@ -507,11 +832,22 @@ static void
 apply_gamma5_sign(overlap_level_t lvl, qpb_spinor_field y, qpb_spinor_field x)
 {
   /* Implements: γ5(sign(X(x))) = γ5(X(c_0 + Sum_{i=1}^{n} c_i/(X^2+σ_i) )),
-      with X(x) = γ5(D(x) - ρ*x), at the Zolotarev order of this level. */
+      with X(x) = γ5(D(x) - ρ*x), at the Zolotarev order of this level.
 
-  qpb_spinor_field sum = ov_temp_vecs[0];
+     With low-mode deflation (defl_built, k > 0):
+
+        γ5 sign(X) x =  D_op( R(X^2) P_high x )         [ high modes, rational ]
+                     +  γ5 V sign(W) (V^dag x)          [ low modes, exact     ]
+
+     where P_high x = x - V (V^dag x).  Only the RHS is deflated, so the MSCG
+     zeta-recurrence is untouched and every pole keeps its full accuracy. */
 
   int n = Zolotarev_order[lvl];
+  int k = defl_built ? defl_k : 0;
+
+  qpb_spinor_field sum = ov_temp_vecs[0];
+  /* MSCG right-hand side: the deflated P_high x when k>0, else x itself. */
+  qpb_spinor_field rhs = (k > 0) ? ov_temp_vecs[19] : x;
 
   qpb_spinor_field yMS[n];
   for(int sigma=0; sigma<n; sigma++)
@@ -521,21 +857,57 @@ apply_gamma5_sign(overlap_level_t lvl, qpb_spinor_field y, qpb_spinor_field x)
     qpb_spinor_field_set_zero(yMS[sigma]);
   }
 
+  /* ---- (a) deflate the right-hand side:  a = V^dag x ; rhs = x - V a ---- */
+  cdbl a[QPB_DEFL_KMAX];
+  if(k > 0)
+  {
+    for(int i=0; i<k; i++)
+      qpb_spinor_xdoty(&a[i], defl_V[i], x);        /* a_i = <V_i, x> */
+    qpb_spinor_xeqy(rhs, x);
+    for(int i=0; i<k; i++)
+      qpb_spinor_axpy(rhs, (qpb_complex){-a[i].re, -a[i].im}, defl_V[i], rhs);
+  }
+
   qpb_double kernel_mass = ov_params.m_bare; // Kernel operator bare mass
   qpb_double kernel_kappa = 1./(2*kernel_mass+8.);
 
-  qpb_mscongrad(yMS, x, ov_params.gauge_ptr, ov_params.clover, kernel_kappa, \
+  qpb_mscongrad(yMS, rhs, ov_params.gauge_ptr, ov_params.clover, kernel_kappa, \
     n, shifts[lvl], ov_params.c_sw, MS_solver_precision[lvl], \
     MS_maximum_solver_iterations);
 
+  /* ---- (b) rational part on the (deflated) RHS:  sum = R(X^2) rhs ---- */
   // Initialize sum with the constant term
-  qpb_spinor_ax(sum, (qpb_complex) {constant_term[lvl], 0.}, x);
+  qpb_spinor_ax(sum, (qpb_complex) {constant_term[lvl], 0.}, rhs);
   // And then add the rest of the partial fraction terms
   for(int sigma=0; sigma<n; sigma++)
     qpb_spinor_axpy(sum, (qpb_complex) {numerators[lvl][sigma], 0.}, \
                     yMS[sigma], sum);
 
-  D_op(y, sum);
+  D_op(y, sum);   /* high-mode result: γ5 X R(X^2) P_high x */
+
+  /* ---- (c) exact low-mode part:  y += γ5 V sign(W) a ---- */
+  if(k > 0)
+  {
+    cdbl b[QPB_DEFL_KMAX];
+    for(int i=0; i<k; i++)
+    {
+      cdbl s = {0., 0.};
+      for(int j=0; j<k; j++)
+      {
+        cdbl w = defl_signW[i*k+j];
+        s.re += w.re*a[j].re - w.im*a[j].im;
+        s.im += w.re*a[j].im + w.im*a[j].re;
+      }
+      b[i] = s;
+    }
+    /* sum ([0]) is dead after D_op -- reuse it to accumulate the low part */
+    qpb_spinor_field low = ov_temp_vecs[0];
+    qpb_spinor_field_set_zero(low);
+    for(int i=0; i<k; i++)
+      qpb_spinor_axpy(low, (qpb_complex){b[i].re, b[i].im}, defl_V[i], low);
+    qpb_spinor_gamma5(low, low);
+    qpb_spinor_axpy(y, (qpb_complex){1., 0.}, low, y);   /* y += γ5 V sign(W) a */
+  }
 
   return;
 }
