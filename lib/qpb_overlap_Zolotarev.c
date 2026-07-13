@@ -32,7 +32,7 @@
 
 
 /*
-  ov_temp_vecs layout (20 vectors total):
+  ov_temp_vecs layout (27 vectors total):
 
    Apply scratch (transient; clobbered on every call to the apply functions,
    shared across all levels since apply_overlap is atomic):
@@ -47,19 +47,31 @@
     [ 7]  r0_hat   [ 8]  r   [ 9]  p   [10]  u   [11]  v
     [12]  y_pc = K^{-1}·p    [13]  z_pc = K^{-1}·s
 
-   Inner (preconditioner) BiCGStab state on D_ov^(n-1):
+   L1 preconditioner BiCGStab state on D_ov^(n-1):
     [14]  r0_hat   [15]  r   [16]  p   [17]  u   [18]  v
+    [19]  y_pc = K2^{-1}·p   [20]  z_pc = K2^{-1}·s
+          (L2 hooks; when the second layer is OFF, y_pc≡p and z_pc≡s, so L1 is
+           behaviourally identical to the single-layer version)
+
+   L2 preconditioner BiCGStab state on D_ov^(n-2):
+    [21]  r0_hat   [22]  r   [23]  p   [24]  u   [25]  v
 
    Sign-function deflation scratch (transient apply scratch, like [0]/[1]):
-    [19]  P_high·x  = x - V V^dag x   (the deflated MSCG right-hand side)
+    [26]  P_high·x = x - V V^dag x   (the deflated MSCG right-hand side)
 
-   The CG block [2-6] and the BiCGStab blocks [7-18] are never live at the same
-   time (they are mutually-exclusive top-level entry points), but are kept
-   disjoint here for clarity.
+   The CG block [2-6] and the BiCGStab blocks [7-25] are never live at the same
+   time (mutually-exclusive top-level entry points), kept disjoint for clarity.
 */
 
-#define OVERLAP_NUMB_TEMP_VECS 20
+#define OVERLAP_NUMB_TEMP_VECS 27
 #define MSCG_NUMB_TEMP_VECS 20
+
+/* ---- Experimental level-2 cascaded preconditioning (hard-coded knobs) -------
+   Deliberately compile-time constants, NOT parsed from the input file: flip a
+   value and recompile. Mirrors lib/qpb_overlap_kl_pfrac.c. Experimental.        */
+#define SECOND_LAYER_REQUESTED   0      /* 1 = enable L2, 0 = disable           */
+#define PREC2_MS_EPSILON_FACTOR  5.0    /* L2 MSCG tol = factor x L1 MSCG tol   */
+#define PREC2_MAX_ITER_OFFSET    1      /* L2 BiCGStab cap = L1 cap - offset    */
 
 
 /* ========================================================================= *
@@ -79,30 +91,35 @@
  *  where V holds the k lowest eigenvectors of X^2 (an X-invariant subspace),
  *  and W = V^dag X V is the k x k Hermitian projection of the (signed) kernel
  *  onto that subspace.  sign(W) = Q sign(Theta) Q^dag is computed from the
- *  dense eigendecomposition of W.  This is the robust way to get the signs:
- *  each X^2 eigenvalue lambda^2 is doubly degenerate (from +/-lambda of the
- *  Hermitian X), so an individual X^2 eigenvector has no well-defined sign;
- *  diagonalizing W in the subspace resolves it correctly.
+ *  dense eigendecomposition of W (robust to the +/-lambda degeneracy of X^2).
  *
  *  Because we clean only the RIGHT-HAND SIDE (P_high x has no low-mode
  *  content), the multi-shift CG and its zeta-recurrence are untouched: every
  *  Zolotarev pole still converges to its full tolerance (no residual floor).
- *  The gain is pure conditioning: the effective condition number the MSCG
- *  sees drops from lambda_max^2/lambda_min^2 to lambda_max^2/theta[k], so each
- *  sign evaluation (hundreds per inversion, x12 RHS) costs far fewer inner
- *  iterations.  The k eigenvectors are built once per gauge configuration and
- *  reused across every sign evaluation of BOTH the outer (order-n) and the
- *  preconditioner (order-(n-1)) overlap, since they depend only on X.
+ *  The k eigenvectors are built once per gauge configuration and reused across
+ *  every sign evaluation of ALL levels (outer, L1 prec, L2 prec), since they
+ *  depend only on X.
+ *
+ *  When deflation is on (QPB_DEFL_K > 0) the build's Lanczos tridiagonal also
+ *  supplies the extreme eigenvalues of X^2 for the Zolotarev interval, so the
+ *  separate qpb_extreme_eigenvalues_of_X_squared() pass is skipped entirely.
  *
  *  Compile-time controls (override e.g. with -DQPB_DEFL_K=0 for the baseline):
  *      QPB_DEFL_K : number of low modes carried in V (0 disables deflation).
  *      QPB_DEFL_M : Lanczos search dimension used to build V (>= K).
+ *      QPB_DEFL_SHRINK_INTERVAL : placeholder ONLY (default 0). Reserved for a
+ *          future option to use [theta_k, lambda_max^2] as the Zolotarev
+ *          interval once the low modes are handled exactly. It is intentionally
+ *          NOT wired to anything yet: the interval is unchanged.
  * ========================================================================= */
 #ifndef QPB_DEFL_K
 #define QPB_DEFL_K 20
 #endif
 #ifndef QPB_DEFL_M
 #define QPB_DEFL_M 64
+#endif
+#ifndef QPB_DEFL_SHRINK_INTERVAL
+#define QPB_DEFL_SHRINK_INTERVAL 0
 #endif
 #define QPB_DEFL_KMAX (QPB_DEFL_K > 0 ? QPB_DEFL_K : 1)
 
@@ -111,8 +128,9 @@ typedef qpb_complex_double cdbl;
 
 typedef enum {
   LEVEL_OUTER = 0,                 /* Zolotarev order n   (massive overlap)     */
-  LEVEL_PREC  = 1,                 /* Zolotarev order n-1 (the preconditioner)  */
-  LEVEL_COUNT = 2
+  LEVEL_PREC  = 1,                 /* Zolotarev order n-1 (L1 preconditioner)   */
+  LEVEL_PREC2 = 2,                 /* Zolotarev order n-2 (L2 preconditioner)   */
+  LEVEL_COUNT = 3
 } overlap_level_t;
 
 
@@ -121,10 +139,12 @@ static qpb_spinor_field mscg_temp_vecs[MSCG_NUMB_TEMP_VECS];
 
 static qpb_overlap_params ov_params;
 
-/* Per-level Zolotarev partial-fraction data. Both levels share the SAME
+/* Per-level Zolotarev partial-fraction data. All levels share the SAME
    spectral interval [min_eigv, max_eigv]: the extreme eigenvalues of X^2 are a
    property of the operator, not of the Zolotarev order, so the (expensive)
-   Lanczos pass runs once and both coefficient tables are derived from it. */
+   Lanczos pass runs once and every coefficient table is derived from it.
+   For an order-0 level, shifts/numerators are NULL and constant_term holds the
+   minimax linear coefficient c0 = 2/(min_eigv+max_eigv) (sign(X) ~ c0 X). */
 static int          Zolotarev_order    [LEVEL_COUNT];
 static qpb_double  *shifts             [LEVEL_COUNT];
 static qpb_double  *numerators         [LEVEL_COUNT];
@@ -134,17 +154,17 @@ static qpb_double   constant_term      [LEVEL_COUNT];
 static qpb_double   MS_solver_precision[LEVEL_COUNT];
 static int          MS_maximum_solver_iterations;
 
-/* Preconditioner-solver control. The inner BiCGStab now iterates until its
+/* Preconditioner-solver control. The inner BiCGStab iterates until its
    relative residual ||r||/||b|| <= prec_solver_epsilon, capped at
    prec_solver_max_iter steps (a hard safety net, NOT the stopping criterion).
    Because the iteration count depends on the right-hand side, the
    preconditioner is non-stationary; the outer plain BiCGStab tolerates this
-   in practice provided prec_solver_epsilon is tight enough. The MSCG accuracy
-   (sign-function tolerance inside each operator apply) is
-   MS_solver_precision[LEVEL_PREC]. */
-static qpb_double   prec_solver_epsilon;     /* inner stopping criterion */
-static int          prec_solver_max_iter;    /* inner hard safety cap    */
-static int          prec_on;                 /* resolved once at init    */
+   in practice provided prec_solver_epsilon is tight enough. */
+static qpb_double   prec_solver_epsilon;     /* inner stopping criterion       */
+static int          prec_solver_max_iter;    /* L1 hard safety cap             */
+static int          prec2_solver_max_iter;   /* L2 hard safety cap             */
+static int          prec_on;                 /* resolved once at init          */
+static int          second_layer_on;         /* resolved once at init          */
 
 /* Sign-function deflation subspace (built once per configuration). */
 static qpb_spinor_field defl_V[QPB_DEFL_KMAX];                  /* low eigvecs of X^2 */
@@ -271,7 +291,8 @@ qpb_extreme_eigenvalues_of_X_squared(qpb_double *min_eigv, \
 {
   /* It calculates the extreme eigenvalues of the eigenvalue spectrum
   of H^2, H ≡ γ5*Kernel(x), with: Kernel(x) = (a*D - ρ)(x), using the Lanczos
-  algorithm. */
+  algorithm.  Used only on the baseline (QPB_DEFL_K = 0) path; when deflation
+  is on, the deflation build supplies these bounds instead. */
 
   qpb_lanczos_init();
 
@@ -315,7 +336,8 @@ qpb_extreme_eigenvalues_of_X_squared(qpb_double *min_eigv, \
 
 /* Build the Zolotarev partial-fraction tables (shifts, numerators,
    constant_term) for a given level/order, using the shared spectral interval
-   [ov_params.min_eigv, ov_params.max_eigv]. Called once per active level. */
+   [ov_params.min_eigv, ov_params.max_eigv]. Called once per active level with
+   order >= 1. */
 static void
 build_zolotarev_tables(overlap_level_t lvl, int order, qpb_double scaling_factor)
 {
@@ -417,9 +439,14 @@ X_op(qpb_spinor_field y, qpb_spinor_field x)
  *  them; then form W = V^dag X V (k x k Hermitian) and its matrix sign,
  *  sign(W) = Q sign(Theta) Q^dag.  All persistent state (defl_V, defl_signW)
  *  is filled here, once per gauge configuration.
+ *
+ *  Also returns the extreme eigenvalues of X^2 (edges of the Lanczos
+ *  tridiagonal spectrum, which converge fastest), so the caller can use them
+ *  as the Zolotarev spectral interval instead of a second, redundant pass.
  * ------------------------------------------------------------------------- */
 static void
-build_deflation_subspace(void)
+build_deflation_subspace(qpb_double *min_eigv_squared_out,
+                         qpb_double *max_eigv_squared_out)
 {
   int k = QPB_DEFL_K;
   int m = QPB_DEFL_M;
@@ -430,6 +457,8 @@ build_deflation_subspace(void)
 
   print(" Deflation: building %d low modes of X^2 via Lanczos (m=%d)...\n", k, m);
   qpb_double tb = qpb_stop_watch(0);
+
+  int kapps = 0;   /* count of forward kernel (X) applications in the build */
 
   /* Lanczos vectors + scratch */
   qpb_spinor_field *lv = qpb_alloc(sizeof(qpb_spinor_field)*m);
@@ -457,6 +486,7 @@ build_deflation_subspace(void)
       /* av = A v_i = X (X v_i) */
       X_op(tmp, lv[i]);
       X_op(av,  tmp);
+      kapps += 2;
 
       if(i > 0)
 	qpb_spinor_axpy(av, (qpb_complex){-beta[i-1], 0.}, lv[i-1], av);
@@ -510,6 +540,10 @@ build_deflation_subspace(void)
   gsl_eigen_symmv_sort(eval, evec, GSL_EIGEN_SORT_VAL_ASC);
   gsl_eigen_symmv_free(ws);
 
+  /* Harvest the spectral interval of X^2 from the tridiagonal edges. */
+  if(min_eigv_squared_out) *min_eigv_squared_out = gsl_vector_get(eval, 0);
+  if(max_eigv_squared_out) *max_eigv_squared_out = gsl_vector_get(eval, m-1);
+
   /* lift the k lowest Ritz vectors:  V_c = sum_i evec[i][c] v_i */
   for(int c=0; c<k; c++)
     {
@@ -548,6 +582,7 @@ build_deflation_subspace(void)
     {
       X_op(tmp, defl_V[c]);
       X_op(av,  tmp);                        /* av = X^2 V_c */
+      kapps += 2;
       qpb_complex_double th;
       qpb_spinor_xdoty(&th, defl_V[c], av);  /* theta_c = <V_c, X^2 V_c> */
       qpb_spinor_axpy(av, (qpb_complex){-th.re, 0.}, defl_V[c], av);
@@ -561,6 +596,7 @@ build_deflation_subspace(void)
   for(int j=0; j<k; j++)
     {
       X_op(tmp, defl_V[j]);                  /* tmp = X V_j */
+      kapps += 1;
       for(int i=0; i<k; i++)
 	{
 	  qpb_complex_double wij;
@@ -635,6 +671,7 @@ build_deflation_subspace(void)
   defl_built = 1;
 
   tb = qpb_stop_watch(tb);
+  print(" Deflation: kernel applications for subspace build = %d\n", kapps);
   print(" Deflation: subspace ready (k=%d), build t = %g secs\n", k, tb);
 
   return;
@@ -714,21 +751,32 @@ qpb_overlap_Zolotarev_init(void * gauge, qpb_clover_term clover, \
     }
     ov_params.initialized = QPB_OVERLAP_INITIALIZED;
 
-    /* --------------------- extreme eigenvalues of X^2 --------------------- */
+    /* --------------------- spectral interval of X^2 --------------------- */
 
     qpb_double min_eigv_squared;
     qpb_double max_eigv_squared;
 
-    /* First the the extrema of the eigenvalues spectrum of X^2,
-    X = g5*(D - rho), are calculated and are stored inside the
-    'min_eigv_squared' and 'max_eigv_squared'variables correspondingly.
-    These bounds are a property of the operator X, NOT of the Zolotarev order,
-    so this (expensive) Lanczos pass runs once and feeds BOTH the order-n and
-    the order-(n-1) coefficient tables below. */
-    int Lanczos_iters = qpb_extreme_eigenvalues_of_X_squared(&min_eigv_squared,\
-                      &max_eigv_squared, Lanczos_epsilon, Lanczos_max_iters);
-    print(" Total number of Lanczos algorithm iterations = %d\n", \
+    /* The extrema of the eigenvalue spectrum of X^2, X = g5*(D - rho), feed
+       the Zolotarev coefficient tables. They are a property of the operator,
+       NOT of the Zolotarev order, so they are computed once.
+
+       When deflation is on (QPB_DEFL_K > 0), build the subspace first and take
+       the interval from its Lanczos tridiagonal edges (which converge fastest),
+       avoiding a second, redundant extreme-eigenvalue pass. Otherwise use the
+       standalone adaptive routine. */
+    if(QPB_DEFL_K > 0)
+    {
+      build_deflation_subspace(&min_eigv_squared, &max_eigv_squared);
+      print(" Total number of Lanczos algorithm iterations = %d\n", QPB_DEFL_M);
+    }
+    else
+    {
+      int Lanczos_iters = qpb_extreme_eigenvalues_of_X_squared(&min_eigv_squared,\
+                        &max_eigv_squared, Lanczos_epsilon, Lanczos_max_iters);
+      print(" Total number of Lanczos algorithm iterations = %d\n", \
                                                                 Lanczos_iters);
+    }
+
     /* If requested the extreme eigenvalues are modified accordingly */
     if (delta_min != 1.0)
       min_eigv_squared *= delta_min;
@@ -738,50 +786,63 @@ qpb_overlap_Zolotarev_init(void * gauge, qpb_clover_term clover, \
     print(" Min eigenvalue squared = %.16f\n", min_eigv_squared);
     print(" Max eigenvalue squared = %.16f\n", max_eigv_squared);
 
-    /* And then their square root value is stored inside the 'min_eigv' and
-    'max_eigv' attributes of the 'ov_params' struct. */
-
     ov_params.min_eigv = sqrt(min_eigv_squared);
     ov_params.max_eigv = sqrt(max_eigv_squared);
 
     /* ----------------------- expansion coefficients ----------------------- */
 
-    /* Levels: outer = Zol_iters, prec = Zol_iters - 1.
-       Zolotarev has no order-0 fallback (unlike the KL shifted kernel), so a
-       prec order < 1 simply disables preconditioning. */
+    /* Levels: outer = Zol_iters, L1 = Zol_iters-1, L2 = Zol_iters-2.
+       Order 0 is a valid member here: sign(X) ≈ c0 X (minimax linear), which
+       lets an order-0 overlap act as the smallest preconditioner. */
     Zolotarev_order[LEVEL_OUTER] = Zol_iters;
     Zolotarev_order[LEVEL_PREC]  = Zol_iters - 1;
+    Zolotarev_order[LEVEL_PREC2] = Zol_iters - 2;   /* may be < 0 for small n */
 
     MS_solver_precision[LEVEL_OUTER] = ms_epsilon;
     MS_solver_precision[LEVEL_PREC]  = prec_ms_epsilon;
+    MS_solver_precision[LEVEL_PREC2] = PREC2_MS_EPSILON_FACTOR * prec_ms_epsilon;
     MS_maximum_solver_iterations     = ms_max_iter;
 
-    prec_solver_epsilon  = prec_epsilon;
-    prec_solver_max_iter = prec_max_iter;
+    prec_solver_epsilon   = prec_epsilon;
+    prec_solver_max_iter  = prec_max_iter;
+    prec2_solver_max_iter = prec_solver_max_iter - PREC2_MAX_ITER_OFFSET;
 
     /* Populate the partial-fraction tables per level from the shared spectral
-       interval. Skip any level whose order is < 1. */
+       interval. Order 0 stores the linear coefficient c0; order < 0 is inert. */
     for(int lvl = 0; lvl < LEVEL_COUNT; lvl++)
     {
-      if(Zolotarev_order[lvl] < 1)
+      int order = Zolotarev_order[lvl];
+      if(order < 0)
       {
         shifts[lvl] = NULL; numerators[lvl] = NULL; constant_term[lvl] = 0.;
         continue;
       }
-      build_zolotarev_tables(lvl, Zolotarev_order[lvl], scaling_factor);
+      if(order == 0)
+      {
+        /* order-0 fallback: sign(X) ≈ c0 X, minimax linear on [min,max_eigv].
+           Same 'constant_term' role and scaling as the order>=1 tables (it
+           multiplies X, with zero poles). */
+        shifts[lvl] = NULL; numerators[lvl] = NULL;
+        constant_term[lvl] = 2.0 / (ov_params.min_eigv + ov_params.max_eigv);
+        if(scaling_factor != 1.0)
+          constant_term[lvl] *= 1.0 / sqrt(scaling_factor);
+        continue;
+      }
+      build_zolotarev_tables(lvl, order, scaling_factor);
     }
 
-    /* Preconditioning is active only if requested (positive tolerance AND a
-       positive safety cap) and the prec order is valid (Zol_iters >= 2). */
+    /* L1 preconditioning is active if requested (positive tolerance AND a
+       positive safety cap) and its order is valid (>= 0, incl. the order-0
+       fallback). */
     prec_on = (prec_solver_epsilon > 0) && (prec_solver_max_iter > 0) \
-              && (Zolotarev_order[LEVEL_PREC] >= 1);
+              && (Zolotarev_order[LEVEL_PREC] >= 0);
 
-    /* ------------------- sign-function deflation subspace ------------------ *
-       Build V (lowest k eigenvectors of X^2) and sign(V^dag X V) once, here.
-       Reused by apply_gamma5_sign() at BOTH levels (they share X).  Disabled
-       at compile time with -DQPB_DEFL_K=0, which reproduces the plain path. */
-    if(QPB_DEFL_K > 0)
-      build_deflation_subspace();
+    /* Second layer is meaningful only if the first layer runs, the L2 order is
+       valid (>= 0), and its cap leaves room to iterate. */
+    second_layer_on = SECOND_LAYER_REQUESTED
+                      && (prec_solver_max_iter > 0)
+                      && (Zolotarev_order[LEVEL_PREC2] >= 0)
+                      && (prec2_solver_max_iter > 1);
 
     /* MSCG workspace sized for the larger (outer) Zolotarev order. */
     qpb_mscongrad_init(Zolotarev_order[LEVEL_OUTER]);
@@ -845,9 +906,57 @@ apply_gamma5_sign(overlap_level_t lvl, qpb_spinor_field y, qpb_spinor_field x)
   int n = Zolotarev_order[lvl];
   int k = defl_built ? defl_k : 0;
 
+  /* ---- order-0 fallback: sign(X) ≈ c0 X (minimax linear) ----
+     Deflated:  γ5 sign(X) x = γ5 V sign(W)(V†x) + c0 (D-ρ) P_high x . */
+  if(n == 0)
+  {
+    qpb_double c0 = constant_term[lvl];
+
+    if(k > 0)
+    {
+      qpb_spinor_field rhs = ov_temp_vecs[26];
+      cdbl a[QPB_DEFL_KMAX];
+      for(int i=0; i<k; i++)
+        qpb_spinor_xdoty(&a[i], defl_V[i], x);
+      qpb_spinor_xeqy(rhs, x);
+      for(int i=0; i<k; i++)
+        qpb_spinor_axpy(rhs, (qpb_complex){-a[i].re, -a[i].im}, defl_V[i], rhs);
+
+      D_op(y, rhs);                                  /* (D-ρ) P_high x        */
+      qpb_spinor_ax(y, (qpb_complex){c0, 0.}, y);    /* c0 (D-ρ) P_high x     */
+
+      cdbl b[QPB_DEFL_KMAX];
+      for(int i=0; i<k; i++)
+      {
+        cdbl s = {0., 0.};
+        for(int j=0; j<k; j++)
+        {
+          cdbl w = defl_signW[i*k+j];
+          s.re += w.re*a[j].re - w.im*a[j].im;
+          s.im += w.re*a[j].im + w.im*a[j].re;
+        }
+        b[i] = s;
+      }
+      qpb_spinor_field low = ov_temp_vecs[0];
+      qpb_spinor_field_set_zero(low);
+      for(int i=0; i<k; i++)
+        qpb_spinor_axpy(low, (qpb_complex){b[i].re, b[i].im}, defl_V[i], low);
+      qpb_spinor_gamma5(low, low);
+      qpb_spinor_axpy(y, (qpb_complex){1., 0.}, low, y);
+    }
+    else
+    {
+      D_op(y, x);
+      qpb_spinor_ax(y, (qpb_complex){c0, 0.}, y);    /* c0 (D-ρ) x            */
+    }
+    return;
+  }
+
+  /* ---- order >= 1: deflated Zolotarev sign ---- */
+
   qpb_spinor_field sum = ov_temp_vecs[0];
   /* MSCG right-hand side: the deflated P_high x when k>0, else x itself. */
-  qpb_spinor_field rhs = (k > 0) ? ov_temp_vecs[19] : x;
+  qpb_spinor_field rhs = (k > 0) ? ov_temp_vecs[26] : x;
 
   qpb_spinor_field yMS[n];
   for(int sigma=0; sigma<n; sigma++)
@@ -1075,20 +1184,101 @@ qpb_congrad_overlap_Zolotarev(qpb_spinor_field x, qpb_spinor_field b, \
 }
 
 
+static int
+preconditioner_bicgstab_2(qpb_spinor_field x, qpb_spinor_field b)
+{
+  /* Level-2 (innermost) preconditioner: right-hand-side solve on D_ov^(n-2),
+     applied directly (no further nesting). Iterates until the relative
+     recurrence residual ||r||/||b|| <= prec_solver_epsilon, capped at
+     prec2_solver_max_iter. Reports iters + recurrence residual (no extra
+     operator apply, to keep the dslash accounting clean). */
+  qpb_spinor_field r0_hat = ov_temp_vecs[21];
+  qpb_spinor_field r      = ov_temp_vecs[22];
+  qpb_spinor_field p      = ov_temp_vecs[23];
+  qpb_spinor_field u      = ov_temp_vecs[24];
+  qpb_spinor_field v      = ov_temp_vecs[25];
+
+  qpb_double res_norm, b_norm;
+  qpb_complex_double alpha = {1, 0}, omega = {1, 0};
+  qpb_complex_double beta, gamma, rho, zeta;
+  int iters;
+
+  qpb_spinor_xdotx(&b_norm, b);
+  qpb_spinor_field_set_zero(x);
+  qpb_spinor_field_set_zero(p);
+  qpb_spinor_field_set_zero(u);
+
+  qpb_spinor_xeqy(r, b);            /* r0 = b - D_ov^prec2·x0 = b */
+  qpb_spinor_xeqy(r0_hat, r);
+
+  qpb_spinor_xdotx(&res_norm, r);
+  gamma.re = res_norm; gamma.im = 0.;
+  rho = gamma;
+
+  for(iters = 1; iters < prec2_solver_max_iter; iters++) {
+    if(res_norm / b_norm <= prec_solver_epsilon) break;
+
+    qpb_spinor_xdoty(&gamma, r0_hat, r);
+    beta = CMUL(CDEV(gamma, rho), CDEV(alpha, omega));
+
+    omega = CNEGATE(omega);
+    qpb_spinor_axpy(p, omega, u, p);      /* p -= omega·u                */
+    qpb_spinor_axpy(p, beta, p, r);       /* p  = beta·p + r             */
+
+    apply_overlap(LEVEL_PREC2, u, p);     /* u  = D_ov^prec2 · p         */
+
+    qpb_spinor_xdoty(&beta, r0_hat, u);
+    rho   = gamma;
+    alpha = CDEV(rho, beta);
+
+    alpha = CNEGATE(alpha);
+    qpb_spinor_axpy(r, alpha, u, r);      /* r -= alpha·u   (r ≡ s now)  */
+
+    apply_overlap(LEVEL_PREC2, v, r);     /* v  = D_ov^prec2 · s         */
+
+    qpb_spinor_xdoty(&zeta, v, r);
+    qpb_spinor_xdotx(&beta.re, v); beta.im = 0;
+    omega = CDEV(zeta, beta);
+
+    alpha = CNEGATE(alpha);
+    qpb_spinor_axpy(x, alpha, p, x);      /* x += alpha·p                */
+    qpb_spinor_axpy(x, omega, r, x);      /* x += omega·s   (s is in r)  */
+
+    omega = CNEGATE(omega);
+    qpb_spinor_axpy(r, omega, v, r);      /* r -= omega·v                */
+    omega = CNEGATE(omega);
+
+    qpb_spinor_xdotx(&res_norm, r);       /* recurrence residual         */
+  }
+
+  print(" \t\t\tpreconditioner-2 BiCGStab: %d iters, relative residual = %e\n",
+        iters, res_norm / b_norm);
+
+  return iters;
+}
+
+
 static void
 preconditioner_bicgstab(qpb_spinor_field x, qpb_spinor_field b)
 {
-  /* Right-preconditioner inner solve on D_ov^(n-1): iterates until the
+  /* Level-1 right-preconditioner solve on D_ov^(n-1): iterates until the
      relative residual ||r||/||b|| <= prec_solver_epsilon, OR until the hard
      safety cap prec_solver_max_iter is reached, whichever comes first. The
      iteration count therefore varies with the right-hand side (non-stationary
      preconditioner; see the note at the prec_solver_* declarations). Its MSCG
-     accuracy is MS_solver_precision[LEVEL_PREC]. */
+     accuracy is MS_solver_precision[LEVEL_PREC].
+
+     When the second layer is enabled, each application of D_ov^(n-1) is itself
+     preconditioned by an L2 solve on D_ov^(n-2) (y_pc = K2^{-1}·p, etc.); when
+     it is disabled, y_pc ≡ p and z_pc ≡ s, so this reduces exactly to the
+     single-layer routine. */
   qpb_spinor_field r0_hat = ov_temp_vecs[14];
   qpb_spinor_field r      = ov_temp_vecs[15];
   qpb_spinor_field p      = ov_temp_vecs[16];
   qpb_spinor_field u      = ov_temp_vecs[17];
   qpb_spinor_field v      = ov_temp_vecs[18];
+  qpb_spinor_field y_pc   = ov_temp_vecs[19];   /* K2^{-1}·p */
+  qpb_spinor_field z_pc   = ov_temp_vecs[20];   /* K2^{-1}·s */
 
   qpb_complex_double alpha = {1, 0}, omega = {1, 0};
   qpb_complex_double beta, gamma, rho, zeta;
@@ -1107,7 +1297,7 @@ preconditioner_bicgstab(qpb_spinor_field x, qpb_spinor_field b)
   gamma.re = res_norm; gamma.im = 0.;
   rho = gamma;
 
-  for(iters = 0; iters < prec_solver_max_iter; iters++) {
+  for(iters = 1; iters < prec_solver_max_iter; iters++) {
     if(res_norm / b_norm <= prec_solver_epsilon) break;
 
     qpb_spinor_xdoty(&gamma, r0_hat, r);
@@ -1117,7 +1307,9 @@ preconditioner_bicgstab(qpb_spinor_field x, qpb_spinor_field b)
     qpb_spinor_axpy(p, omega, u, p);     /* p -= omega·u                 */
     qpb_spinor_axpy(p, beta, p, r);      /* p  = beta·p + r              */
 
-    apply_overlap(LEVEL_PREC, u, p);     /* u  = D_ov^prec · p           */
+    if(second_layer_on) preconditioner_bicgstab_2(y_pc, p);  /* y_pc = K2⁻¹·p */
+    else                qpb_spinor_xeqy(y_pc, p);
+    apply_overlap(LEVEL_PREC, u, y_pc);  /* u  = D_ov^(n-1) · y_pc       */
 
     qpb_spinor_xdoty(&beta, r0_hat, u);
     rho   = gamma;
@@ -1126,15 +1318,17 @@ preconditioner_bicgstab(qpb_spinor_field x, qpb_spinor_field b)
     alpha = CNEGATE(alpha);
     qpb_spinor_axpy(r, alpha, u, r);     /* r -= alpha·u   (r ≡ s now)   */
 
-    apply_overlap(LEVEL_PREC, v, r);     /* v  = D_ov^prec · s           */
+    if(second_layer_on) preconditioner_bicgstab_2(z_pc, r);  /* z_pc = K2⁻¹·s */
+    else                qpb_spinor_xeqy(z_pc, r);
+    apply_overlap(LEVEL_PREC, v, z_pc);  /* v  = D_ov^(n-1) · z_pc       */
 
     qpb_spinor_xdoty(&zeta, v, r);
     qpb_spinor_xdotx(&beta.re, v); beta.im = 0;
     omega = CDEV(zeta, beta);
 
     alpha = CNEGATE(alpha);
-    qpb_spinor_axpy(x, alpha, p, x);     /* x += alpha·p                 */
-    qpb_spinor_axpy(x, omega, r, x);     /* x += omega·s   (s is in r)   */
+    qpb_spinor_axpy(x, alpha, y_pc, x);  /* x += alpha·y_pc  (NOT alpha·p) */
+    qpb_spinor_axpy(x, omega, z_pc, x);  /* x += omega·z_pc  (NOT omega·s) */
 
     omega = CNEGATE(omega);
     qpb_spinor_axpy(r, omega, v, r);     /* r -= omega·v                 */
