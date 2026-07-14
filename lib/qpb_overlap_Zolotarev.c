@@ -72,6 +72,7 @@
 #define SECOND_LAYER_REQUESTED   0      /* 1 = enable L2, 0 = disable           */
 #define PREC2_MS_EPSILON_FACTOR  5.0    /* L2 MSCG tol = factor x L1 MSCG tol   */
 #define PREC2_MAX_ITER_OFFSET    1      /* L2 BiCGStab cap = L1 cap - offset    */
+#define PREC2_EPSILON_FACTOR     5.0    /* L2 BiCGStab tol = factor x L1 BiCGStab tol */
 
 
 /* ========================================================================= *
@@ -160,9 +161,10 @@ static int          MS_maximum_solver_iterations;
    Because the iteration count depends on the right-hand side, the
    preconditioner is non-stationary; the outer plain BiCGStab tolerates this
    in practice provided prec_solver_epsilon is tight enough. */
-static qpb_double   prec_solver_epsilon;     /* inner stopping criterion       */
+static qpb_double   prec_solver_epsilon;     /* L1 stopping criterion          */
 static int          prec_solver_max_iter;    /* L1 hard safety cap             */
 static int          prec2_solver_max_iter;   /* L2 hard safety cap             */
+static qpb_double   prec2_solver_epsilon;    /* L2 stopping criterion          */
 static int          prec_on;                 /* resolved once at init          */
 static int          second_layer_on;         /* resolved once at init          */
 
@@ -806,6 +808,7 @@ qpb_overlap_Zolotarev_init(void * gauge, qpb_clover_term clover, \
     prec_solver_epsilon   = prec_epsilon;
     prec_solver_max_iter  = prec_max_iter;
     prec2_solver_max_iter = prec_solver_max_iter - PREC2_MAX_ITER_OFFSET;
+    prec2_solver_epsilon  = PREC2_EPSILON_FACTOR * prec_solver_epsilon;
 
     /* Populate the partial-fraction tables per level from the shared spectral
        interval. Order 0 stores the linear coefficient c0; order < 0 is inert. */
@@ -1216,7 +1219,7 @@ preconditioner_bicgstab_2(qpb_spinor_field x, qpb_spinor_field b)
   rho = gamma;
 
   for(iters = 1; iters < prec2_solver_max_iter; iters++) {
-    if(res_norm / b_norm <= prec_solver_epsilon) break;
+    if(res_norm / b_norm <= prec2_solver_epsilon) break;
 
     qpb_spinor_xdoty(&gamma, r0_hat, r);
     beta = CMUL(CDEV(gamma, rho), CDEV(alpha, omega));
