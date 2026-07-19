@@ -58,6 +58,7 @@
 #define SECOND_LAYER_REQUESTED   0      /* 1 = enable L2, 0 = disable           */
 #define PREC2_MS_EPSILON_FACTOR  5.0    /* L2 MSCG tol = factor x L1 MSCG tol   */
 #define PREC2_MAX_ITER_OFFSET    1      /* L2 BiCGStab cap = L1 cap - offset    */
+#define PREC2_EPSILON_FACTOR     5.0    /* L2 BiCGStab tol = factor x L1 BiCGStab tol */
 
 /* ========================================================================= *
  *  Sign-function low-mode deflation  (mirrors lib/qpb_overlap_Zolotarev.c)
@@ -130,6 +131,7 @@ static int        MS_maximum_solver_iterations;
 static qpb_double prec_solver_epsilon;
 static int        prec_solver_max_iter;
 static int        prec2_solver_max_iter;
+static qpb_double prec2_solver_epsilon;
 
 static int        second_layer_on;        /* resolved once at init */
 
@@ -503,6 +505,7 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover,
   prec_solver_max_iter = prec_max_iter;
 
   prec2_solver_max_iter = prec_solver_max_iter - PREC2_MAX_ITER_OFFSET;
+  prec2_solver_epsilon  = PREC2_EPSILON_FACTOR * prec_solver_epsilon;
 
   /* Populate partial-fraction tables per level. Skip LEVEL_PREC when its
      order is 0 — the kernel path doesn't use shifts/numerators. */
@@ -724,7 +727,7 @@ preconditioner_bicgstab_2(qpb_spinor_field x, qpb_spinor_field b)
   rho = gamma;
 
   for(iters = 1; iters < prec2_solver_max_iter; iters++) {
-    if(res_norm / b_norm <= prec_solver_epsilon)
+    if(res_norm / b_norm <= prec2_solver_epsilon)
       break;
 
     qpb_spinor_xdoty(&gamma, r0_hat, r);
@@ -757,12 +760,14 @@ preconditioner_bicgstab_2(qpb_spinor_field x, qpb_spinor_field b)
     qpb_spinor_axpy(r, omega, v, r);     /* r -= omega·v                 */
     omega = CNEGATE(omega);
 
-    qpb_spinor_xdotx(&res_norm, r);
+     qpb_spinor_xdotx(&res_norm, r);
   }
+
+  print(" \t\t\tpreconditioner-2 BiCGStab: %d iters, relative residual = %e\n",
+        iters, res_norm / b_norm);
 
   return iters;            /* caller can compare against prec_solver_max_iter */
 }
-
 
 static int
 preconditioner_bicgstab(qpb_spinor_field x, qpb_spinor_field b)
@@ -838,8 +843,17 @@ preconditioner_bicgstab(qpb_spinor_field x, qpb_spinor_field b)
     qpb_spinor_xdotx(&res_norm, r);
   }
 
+  /* Explicit final (true) residual, reported for diagnostics — the
+     recurrence residual used in the exit test can drift from b - D_ov^prec·x. */
+  apply_overlap(LEVEL_PREC, u, x);
+  qpb_spinor_xmy(r, b, u);
+  qpb_spinor_xdotx(&res_norm, r);
+  print(" \t\tpreconditioner BiCGStab: %d iters, relative residual = %e\n",
+        iters, res_norm / b_norm);
+
   return iters;            /* caller can compare against prec_solver_max_iter */
 }
+
 
 
 int
