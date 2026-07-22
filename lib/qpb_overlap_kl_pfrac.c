@@ -41,6 +41,20 @@ static qpb_double *shifts;
 static qpb_double constant_term;
 
 
+/* -------------- SCALAR FUNCTIONS -------------- */
+
+static qpb_double
+sign_function_pfrac_form(qpb_double x, qpb_double *numerators_in, \
+                          qpb_double *shifts_in, qpb_double constant_term_in, int n)
+{
+  qpb_double sum = constant_term_in;
+  for(int i=0; i<n; i++)
+    sum += numerators_in[i] / (x*x + shifts_in[i]);
+
+  return x * sum;
+}
+
+
 /* --------------------- EXTREME EIGENVALUES FUNCTIONS --------------------- */
 
 INLINE void
@@ -122,6 +136,7 @@ qpb_extreme_eigenvalues_of_X_squared(qpb_double *min_eigv, \
 
   return i;
 }
+
 
 /* ------------------------ MATRIX-VECTOR FUNCTIONS ------------------------ */
 
@@ -238,19 +253,24 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover,
     // the scaling parameter
     if (scaling_factor != 1.0)
     {
-      qpb_double correction_term = constant_term;
-      for(int i=0; i<KL_diagonal_order; i++)
-      {
-        correction_term += numerators[i]/((1.0/scaling_factor)+shifts[i]);
-      }
-      correction_term *= 1.0/sqrt(scaling_factor);
+      /* IMPORTANT: evaluate at lambda_max using the ORIGINAL (unscaled)
+         constant_term/numerators/shifts, before they get overwritten below. */
+      qpb_double lambda_max = ov_params.max_eigv;
+      qpb_double lambda_max_scaled = lambda_max / sqrt(scaling_factor);
+
+      qpb_double f_n_at_lambda_max = sign_function_pfrac_form(lambda_max, \
+                        numerators, shifts, constant_term, KL_diagonal_order);
+      qpb_double f_n_at_lambda_max_scaled = sign_function_pfrac_form(lambda_max_scaled, \
+                        numerators, shifts, constant_term, KL_diagonal_order);
+
+      qpb_double correction_factor = f_n_at_lambda_max / f_n_at_lambda_max_scaled;
 
       constant_term *= 1.0/sqrt(scaling_factor);
-      constant_term *= 1.0/correction_term;
+      constant_term *= correction_factor;
       for(int i=0; i<KL_diagonal_order; i++)
       {
         numerators[i] *= sqrt(scaling_factor);
-        numerators[i] *= 1.0/correction_term;
+        numerators[i] *= correction_factor;
         shifts[i] *= scaling_factor;
       }
     }
