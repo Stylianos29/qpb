@@ -442,6 +442,11 @@ main(int argc, char *argv[])
   qpb_double *diffs;
   diffs = qpb_alloc(sizeof(qpb_double)*n_vec);
 
+  qpb_double Lanczos_epsilon=1e-10;
+  int Lanczos_max_iters=10000;
+  qpb_double delta_max=1.1;
+  qpb_double delta_min=0.5;
+
   qpb_overlap_kl_pfrac_init(solver_arg_links, clover_term, kl_class, kl_iters, \
                   rho, c_sw, mass, scaling_factor, epsilon, max_iters, \
                           Lanczos_epsilon, Lanczos_max_iters, delta_max, delta_min);
