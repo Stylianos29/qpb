@@ -15,6 +15,13 @@
 #include <qpb_mscongrad.h>
 #include <math.h>
 
+#include <qpb.h>            /* pulls in qpb_lanczos.h */
+#include <gsl/gsl_vector.h>
+#include <gsl/gsl_matrix.h>
+#include <gsl/gsl_math.h>
+#include <gsl/gsl_eigen.h>
+#include <gsl/gsl_sort.h>
+#include <gsl/gsl_sort_vector.h>
 
 #define OVERLAP_NUMB_TEMP_VECS 7
 #define MSCG_NUMB_TEMP_VECS 20
@@ -34,11 +41,97 @@ static qpb_double *shifts;
 static qpb_double constant_term;
 
 
+/* --------------------- EXTREME EIGENVALUES FUNCTIONS --------------------- */
+
+INLINE void
+tridiag_eigenv(qpb_double *eig, qpb_double *a, qpb_double *b, int n)
+{
+  /* It calculates the set of eigenvalues of the tri-diagonal matrix
+  constructed appropriately from the given a and b arrays. */
+
+  gsl_matrix *A = gsl_matrix_calloc(n, n);
+  gsl_matrix_set (A, 0, 0, a[0]);
+  gsl_matrix_set (A, 0, 0+1, b[0]);
+  for(int i=1; i<n-1; i++)
+    {
+      gsl_matrix_set(A, i, i, a[i]);
+      gsl_matrix_set(A, i, i+1, b[i]);
+      gsl_matrix_set(A, i, i-1, b[i-1]);
+    }
+  gsl_matrix_set(A, n-1, n-1, a[n-1]);
+  gsl_matrix_set(A, n-1, n-1-1, b[n-1-1]);
+
+  gsl_vector *e = gsl_vector_alloc(n);
+  gsl_eigen_symm_workspace *w = gsl_eigen_symm_alloc(n);
+  gsl_eigen_symm(A, e, w);
+  gsl_eigen_symm_free(w);
+  gsl_matrix_free(A);
+
+  gsl_sort_vector(e);
+
+  for(int i=0; i<n; i++)
+    eig[i] = gsl_vector_get(e, i);
+  
+  gsl_vector_free(e);
+
+  return;
+}
+
+
+int
+qpb_extreme_eigenvalues_of_X_squared(qpb_double *min_eigv, \
+  qpb_double *max_eigv, qpb_double Lanczos_epsilon, int max_iters)
+{
+  /* It calculates the extreme eigenvalues of the eigenvalue spectrum 
+  of H^2, H ≡ γ5*Kernel(x), with: Kernel(x) = (a*D - ρ)(x), using the Lanczos
+  algorithm. */
+
+  qpb_lanczos_init();
+
+  qpb_clover_term clover_term = ov_params.clover;
+  qpb_double c_sw = ov_params.c_sw;
+  qpb_double mass = ov_params.m_bare; // Kernel operator mass set at -rho
+  qpb_double kappa = 1./(2*mass+8.);
+  void *solver_arg_links = ov_params.gauge_ptr;
+  
+  qpb_double *a, *b, *eig;
+  a = qpb_alloc(sizeof(qpb_double)*max_iters);
+  b = qpb_alloc(sizeof(qpb_double)*max_iters);
+  eig = qpb_alloc(sizeof(qpb_double)*max_iters);
+
+  qpb_lanczos(a, b, solver_arg_links, clover_term, kappa, c_sw, 1);
+  qpb_double lambda = 0, dlambda, lambda0 = 1e3;
+  int i=0;
+  for(i=1; i<max_iters; i++)
+  {
+    qpb_lanczos(a, b, solver_arg_links, clover_term, kappa, c_sw, -1);
+    tridiag_eigenv(eig, a, b, i+1);
+
+    lambda = eig[i] / eig[0];
+    dlambda = fabs(lambda - lambda0) / fabs(lambda + lambda0);
+    if (i%100==0)
+      print("\titer = %4d, CN = %e/%e = %e (change = %e, target = %e)\n", i+1,\
+                      eig[i], eig[0], eig[i]/eig[0], dlambda, Lanczos_epsilon);
+    if(dlambda < Lanczos_epsilon*0.5)
+      break;
+    lambda0 = lambda;
+  }
+
+  *min_eigv = (qpb_double) eig[0];
+  *max_eigv = (qpb_double) eig[i-1];
+
+  return i;
+}
+
+/* ------------------------ MATRIX-VECTOR FUNCTIONS ------------------------ */
+
 void
-qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover, \
-          enum qpb_kl_classes kl_class, int kl_iters, qpb_double rho, \
-          qpb_double c_sw, qpb_double mass, qpb_double scaling_factor, \
-          qpb_double ms_epsilon, int ms_max_iter)
+qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover,
+          enum qpb_kl_classes kl_class, int kl_iters, qpb_double rho,
+          qpb_double c_sw, qpb_double mass, qpb_double scaling_factor,
+          qpb_double ms_epsilon, int ms_max_iter,
+          qpb_double Lanczos_epsilon, int Lanczos_max_iters,
+          qpb_double delta_max, qpb_double delta_min)
 {
   if(ov_params.initialized != QPB_OVERLAP_INITIALIZED)
   {
@@ -104,6 +197,24 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover, \
     }
     ov_params.initialized = QPB_OVERLAP_INITIALIZED;
 
+    /* --------------------- extreme eigenvalues of X^2 --------------------- */
+    qpb_double min_eigv_squared, max_eigv_squared;
+
+    int Lanczos_iters = qpb_extreme_eigenvalues_of_X_squared(&min_eigv_squared,
+                        &max_eigv_squared, Lanczos_epsilon, Lanczos_max_iters);
+    print(" Total number of Lanczos algorithm iterations = %d\n", Lanczos_iters);
+
+    if (delta_min != 1.0)
+      min_eigv_squared *= delta_min;
+    if (delta_max != 1.0)
+      max_eigv_squared *= delta_max;
+
+    print(" Min eigenvalue squared = %.16f\n", min_eigv_squared);
+    print(" Max eigenvalue squared = %.16f\n", max_eigv_squared);
+
+    ov_params.min_eigv = sqrt(min_eigv_squared);
+    ov_params.max_eigv = sqrt(max_eigv_squared);
+
     KL_diagonal_order = kl_iters;
     MS_solver_precision = ms_epsilon;
     MS_maximum_solver_iterations = ms_max_iter;
@@ -168,6 +279,8 @@ qpb_overlap_kl_pfrac_finalize()
   ov_params.initialized = 0;
   
   qpb_mscongrad_finalize(KL_diagonal_order);
+
+  qpb_lanczos_finalize();
 
   free(numerators);
   free(shifts);

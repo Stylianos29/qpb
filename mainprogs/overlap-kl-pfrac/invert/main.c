@@ -956,11 +956,16 @@ main(int argc, char *argv[])
       break;
     }
 
+  qpb_double Lanczos_epsilon=1e-10;
+  int Lanczos_max_iters=10000;
+  qpb_double delta_max=1.1;
+  qpb_double delta_min=0.5;
 
   qpb_double t = qpb_stop_watch(0);
 
-  qpb_overlap_kl_pfrac_init(solver_arg_links, clover_term, kl_class, kl_iters, \
-                    rho, c_sw, mass, scaling_factor, ms_epsilon, ms_max_iters);
+  qpb_overlap_kl_pfrac_init(solver_arg_links, clover_term, Zol_order, \
+                  rho, c_sw, mass, scaling_factor, ms_epsilon, ms_max_iters, \
+                          Lanczos_epsilon, Lanczos_max_iters, delta_max, delta_min);
 
   for(int i=0; i<n_spinors; i++)
   {
