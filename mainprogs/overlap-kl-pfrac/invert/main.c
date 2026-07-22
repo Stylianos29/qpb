@@ -963,7 +963,7 @@ main(int argc, char *argv[])
 
   qpb_double t = qpb_stop_watch(0);
 
-  qpb_overlap_kl_pfrac_init(solver_arg_links, clover_term, Zol_order, \
+  qpb_overlap_kl_pfrac_init(solver_arg_links, clover_term, kl_iters, \
                   rho, c_sw, mass, scaling_factor, ms_epsilon, ms_max_iters, \
                           Lanczos_epsilon, Lanczos_max_iters, delta_max, delta_min);
 
