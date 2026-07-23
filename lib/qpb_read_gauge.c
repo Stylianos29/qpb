@@ -9,7 +9,7 @@
 #include <qpb_errors.h>
 
 void
-qpb_read_gauge(qpb_gauge_field gauge_field, size_t offset, size_t precision, char fname[])
+qpb_read_gauge(qpb_gauge_field gauge_field, size_t offset, size_t precision, char fname[], int file_is_bigendian)
 {
   MPI_Datatype mpi_dtype_link, filetype;
   if(precision == 32)
@@ -99,7 +99,12 @@ qpb_read_gauge(qpb_gauge_field gauge_field, size_t offset, size_t precision, cha
 	}
     }
   
-  if(!qpb_is_bigendian())
+  /* byte-swap only when the file's byte order differs from this machine's.
+     Standard ILDG files are big-endian (file_is_bigendian == 1); PLEGMA
+     configs are written little-endian (file_is_bigendian == 0). On the usual
+     little-endian machine this swaps su3gauge files (as before) but leaves
+     PLEGMA files untouched */
+  if(qpb_is_bigendian() != file_is_bigendian)
     {
       if(precision == 32)
 	qpb_byte_swap_float(buffer, problem_params.l_vol*ND*NC*NC*2);

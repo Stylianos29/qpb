@@ -13,7 +13,7 @@ void
 qpb_read_raw32_gauge(qpb_gauge_field gauge_field, char fname[])
 {
   size_t precision = 32, offset = 0;
-  qpb_read_gauge(gauge_field, offset, precision, fname);
+  qpb_read_gauge(gauge_field, offset, precision, fname, 1);
   return;
 }
 
@@ -22,7 +22,7 @@ void
 qpb_read_raw64_gauge(qpb_gauge_field gauge_field, char fname[])
 {
   size_t precision = 64, offset = 0;
-  qpb_read_gauge(gauge_field, offset, precision, fname);
+  qpb_read_gauge(gauge_field, offset, precision, fname, 1);
   return;
 }
 

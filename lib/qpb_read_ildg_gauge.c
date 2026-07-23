@@ -47,6 +47,7 @@ qpb_read_ildg_gauge(qpb_gauge_field gauge_field, char fname[])
 
   uint64_t binary_data_offset = 0;
   size_t precision = 0;
+  int file_is_bigendian = 1; /* ILDG standard is big-endian; PLEGMA is not */
   if(am_master)
     {
       FILE *fp = fopen(fname, "r");
@@ -160,13 +161,23 @@ qpb_read_ildg_gauge(qpb_gauge_field gauge_field, char fname[])
 
       unsigned char *field = xpath_get(xpathCtx, (unsigned char *)"/*[local-name()='ildgFormat']/*[local-name()='field']");
       trim((char *)field, strlen((char *)field));
-      if(strncmp((char *)field, "su3gauge", strlen("su3gauge")) != 0)
+      /* accept standard ILDG "su3gauge" files as well as PLEGMA-smeared
+	 configs (e.g. Ferenc's MILC configs), which carry the type string
+	 "PLEGMA_GAUGE" in their ildg-format <field> element but hold the same
+	 SU(3) gauge binary payload */
+      if(strncmp((char *)field, "su3gauge", strlen("su3gauge")) != 0 &&
+	 strncmp((char *)field, "PLEGMA_GAUGE", strlen("PLEGMA_GAUGE")) != 0)
 	{
 	  fprintf(stderr, " %s: ildg file is not of \"su3gauge\" type\n", fname);
 	  MPI_Abort(MPI_COMM_WORLD, QPB_FILE_ERROR);
 	}
 
-      xmlXPathFreeContext(xpathCtx); 
+      /* PLEGMA configs violate the ILDG big-endian convention and are stored
+	 little-endian, so flag them to suppress the reader's byte-swap */
+      if(strncmp((char *)field, "PLEGMA_GAUGE", strlen("PLEGMA_GAUGE")) == 0)
+	file_is_bigendian = 0;
+
+      xmlXPathFreeContext(xpathCtx);
       xmlFreeDoc(doc);      
       if(ildg_format != NULL)
 	free(ildg_format);
@@ -178,8 +189,9 @@ qpb_read_ildg_gauge(qpb_gauge_field gauge_field, char fname[])
   /* root now broadcasts info parsed from ildg-format data */
   MPI_Bcast(&precision, 1, MPI_UNSIGNED_LONG, QPB_MASTER_PROC, MPI_COMM_WORLD);
   MPI_Bcast(&binary_data_offset, 1, MPI_UNSIGNED_LONG_LONG, QPB_MASTER_PROC, MPI_COMM_WORLD);
+  MPI_Bcast(&file_is_bigendian, 1, MPI_INT, QPB_MASTER_PROC, MPI_COMM_WORLD);
 
   /* call binary data reader */
-  qpb_read_gauge(gauge_field, (size_t)binary_data_offset, (size_t)precision, fname);
+  qpb_read_gauge(gauge_field, (size_t)binary_data_offset, (size_t)precision, fname, file_is_bigendian);
   return;
 }
