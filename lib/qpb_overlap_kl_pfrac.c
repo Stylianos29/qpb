@@ -524,7 +524,12 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover,
       numerators[lvl][i] = 2 * constant_term[lvl] / powl(cos(t), 2);
     }
 
-    if(scaling_factor != 1.0) {
+    /* scaling_factor rescales sigma_i -> scaling_factor*sigma_i; restricted to
+    the preconditioner levels (L1, L2). LEVEL_OUTER is never scaled, so the
+    outer sign-function accuracy — and hence the final propagator — is
+    completely unaffected by this knob; only the preconditioner's internal
+    convergence rate can change. */
+    if(lvl != LEVEL_OUTER && scaling_factor != 1.0) {
       constant_term[lvl] *= 1.0 / sqrt(scaling_factor);
       for(int i = 0; i < n; i++) {
         numerators[lvl][i] *= sqrt(scaling_factor);
