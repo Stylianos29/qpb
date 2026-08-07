@@ -116,11 +116,13 @@
 #ifndef QPB_DEFL_K
 #define QPB_DEFL_K 20
 #endif
-#ifndef QPB_DEFL_M
-#define QPB_DEFL_M 64
+#ifndef QPB_DEFL_M_MAX
+#define QPB_DEFL_M_MAX 256   /* HARD SAFETY CAP on the Lanczos dimension --
+                                NOT the stopping criterion (that is eps_Lanczos) */
 #endif
 #ifndef QPB_DEFL_SHRINK_INTERVAL
-#define QPB_DEFL_SHRINK_INTERVAL 0
+#define QPB_DEFL_SHRINK_INTERVAL 1  /* 1: Zolotarev range = [theta_{k+1}, lambda_max^2]
+                                       0: legacy range    = [theta_1,     lambda_max^2] */
 #endif
 #define QPB_DEFL_KMAX (QPB_DEFL_K > 0 ? QPB_DEFL_K : 1)
 
@@ -436,97 +438,169 @@ X_op(qpb_spinor_field y, qpb_spinor_field x)
 
 
 /* ------------------------- DEFLATION SUBSPACE BUILD ---------------------- *
- *  Build V (the k lowest eigenvectors of A = X^2) by a Lanczos pass with full
- *  re-orthogonalization, lifting the k lowest Ritz vectors and orthonormalizing
- *  them; then form W = V^dag X V (k x k Hermitian) and its matrix sign,
- *  sign(W) = Q sign(Theta) Q^dag.  All persistent state (defl_V, defl_signW)
- *  is filled here, once per gauge configuration.
+ *  Lanczos on A = X^2 with full re-orthogonalization, iterating until the
+ *  k+1 lowest Ritz values AND lambda_max are converged to Lanczos_epsilon --
+ *  the SAME criterion used by qpb_extreme_eigenvalues_of_X_squared(). The
+ *  Lanczos dimension m is therefore an outcome, not an input; QPB_DEFL_M_MAX
+ *  is only a memory safety net.
  *
- *  Also returns the extreme eigenvalues of X^2 (edges of the Lanczos
- *  tridiagonal spectrum, which converge fastest), so the caller can use them
- *  as the Zolotarev spectral interval instead of a second, redundant pass.
+ *  The k lowest Ritz vectors are lifted and orthonormalized into V; W = V^dag X V
+ *  and sign(W) = Q sign(Theta) Q^dag follow. theta_{k+1} -- the smallest
+ *  UNdeflated eigenvalue -- is returned as the Zolotarev lower bound: since the
+ *  rational only ever acts on P_high x, it need only be accurate on
+ *  [theta_{k+1}, lambda_max^2]. Only its VALUE is needed; its eigenvector is
+ *  never lifted (all Ritz values come free from the tridiagonal).
+ *
+ *  Returns: the converged Lanczos dimension m.
  * ------------------------------------------------------------------------- */
-static void
-build_deflation_subspace(qpb_double *min_eigv_squared_out,
-                         qpb_double *max_eigv_squared_out)
+static int
+build_deflation_subspace(qpb_double Lanczos_epsilon,
+                         qpb_double *theta_1_out,
+                         qpb_double *theta_kp1_out,
+                         qpb_double *theta_max_out)
 {
   int k = QPB_DEFL_K;
-  int m = QPB_DEFL_M;
+  int mmax = QPB_DEFL_M_MAX;
   if(k <= 0)
-    return;
-  if(m < k)
-    m = k;
+    return 0;
+  if(mmax < k+1)
+    mmax = k+1;                 /* need at least k+1 Ritz values */
 
-  print(" Deflation: building %d low modes of X^2 via Lanczos (m=%d)...\n", k, m);
+  print(" Deflation: building %d low modes of X^2 via Lanczos "
+        "(eps = %e, m_max = %d)...\n", k, Lanczos_epsilon, mmax);
   qpb_double tb = qpb_stop_watch(0);
 
-  int kapps = 0;   /* count of forward kernel (X) applications in the build */
+  int kapps = 0;   /* forward kernel (X) applications in the build */
 
-  /* Lanczos vectors + scratch */
-  qpb_spinor_field *lv = qpb_alloc(sizeof(qpb_spinor_field)*m);
-  for(int i=0; i<m; i++)
-    {
-      lv[i] = qpb_spinor_field_init();
-      qpb_spinor_field_set_zero(lv[i]);
-    }
+  /* Lanczos vector handles. Fields are initialised lazily: m is not known in
+     advance, so we allocate only as far as the iteration actually reaches. */
+  qpb_spinor_field *lv = qpb_alloc(sizeof(qpb_spinor_field)*mmax);
+  int n_alloc = 0;
+
   qpb_spinor_field av  = qpb_spinor_field_init();
   qpb_spinor_field tmp = qpb_spinor_field_init();
   qpb_spinor_field_set_zero(av);
   qpb_spinor_field_set_zero(tmp);
 
-  double *alpha = qpb_alloc(sizeof(double)*m);
-  double *beta  = qpb_alloc(sizeof(double)*m);
+  qpb_double *alpha   = qpb_alloc(sizeof(qpb_double)*mmax);
+  qpb_double *beta    = qpb_alloc(sizeof(qpb_double)*mmax);
+  qpb_double *eig     = qpb_alloc(sizeof(qpb_double)*mmax);
+  qpb_double *eig_old = qpb_alloc(sizeof(qpb_double)*(k+1));
+  qpb_double eig_max_old = 0.;
 
   /* v_0 = normalized random vector */
+  lv[0] = qpb_spinor_field_init();
+  n_alloc = 1;
   qpb_spinor_field_set_random(lv[0]);
   qpb_double nrm;
   qpb_spinor_xdotx(&nrm, lv[0]);
   qpb_spinor_ax(lv[0], (qpb_complex){1./sqrt(nrm), 0.}, lv[0]);
 
-  for(int i=0; i<m; i++)
+  int m = 0, have_prev = 0, converged = 0;
+
+  for(int j=0; j<mmax; j++)
     {
-      /* av = A v_i = X (X v_i) */
-      X_op(tmp, lv[i]);
+      /* av = A v_j = X (X v_j) */
+      X_op(tmp, lv[j]);
       X_op(av,  tmp);
       kapps += 2;
 
-      if(i > 0)
-	qpb_spinor_axpy(av, (qpb_complex){-beta[i-1], 0.}, lv[i-1], av);
+      if(j > 0)
+	qpb_spinor_axpy(av, (qpb_complex){-beta[j-1], 0.}, lv[j-1], av);
 
       qpb_complex_double a;
-      qpb_spinor_xdoty(&a, lv[i], av);
-      alpha[i] = a.re;
-      qpb_spinor_axpy(av, (qpb_complex){-alpha[i], 0.}, lv[i], av);
+      qpb_spinor_xdoty(&a, lv[j], av);
+      alpha[j] = a.re;
+      qpb_spinor_axpy(av, (qpb_complex){-alpha[j], 0.}, lv[j], av);
 
       /* full re-orthogonalization (twice, for numerical stability) */
       for(int pass=0; pass<2; pass++)
-	for(int j=0; j<=i; j++)
+	for(int i=0; i<=j; i++)
 	  {
 	    qpb_complex_double c;
-	    qpb_spinor_xdoty(&c, lv[j], av);
-	    qpb_spinor_axpy(av, (qpb_complex){-c.re, -c.im}, lv[j], av);
+	    qpb_spinor_xdoty(&c, lv[i], av);
+	    qpb_spinor_axpy(av, (qpb_complex){-c.re, -c.im}, lv[i], av);
 	  }
 
       qpb_double bb;
       qpb_spinor_xdotx(&bb, av);
-      beta[i] = sqrt(bb);
+      beta[j] = sqrt(bb);
 
-      if(i < m-1)
+      m = j+1;
+
+      /* ---- Ritz-value convergence test (values only: no vector lifting) ----
+	 Monitors theta_1..theta_{k+1} (the retained modes plus the first
+	 undeflated one, which sets the Zolotarev lower bound) and lambda_max.
+	 theta_{k+1} is the slowest of the set, so it dominates the test. */
+      if(m >= k+1)
 	{
-	  if(beta[i] < 1e-12)
+	  tridiag_eigenv(eig, alpha, beta, m);   /* ascending, values only */
+
+	  if(have_prev)
 	    {
-	      /* invariant subspace found -- restart with a fresh random vector
-		 (it gets re-orthogonalized at the next step) */
-	      qpb_spinor_field_set_random(lv[i+1]);
+	      qpb_double dmax = 0.;
+	      for(int c=0; c<=k; c++)
+		{
+		  qpb_double d = fabs(eig[c]-eig_old[c])
+		               / fabs(eig[c]+eig_old[c]);
+		  if(d > dmax) dmax = d;
+		}
+	      qpb_double dmx = fabs(eig[m-1]-eig_max_old)
+	                     / fabs(eig[m-1]+eig_max_old);
+	      if(dmx > dmax) dmax = dmx;
+
+	      if(m % 20 == 0)
+		print("   m = %4d, theta_1 = %e, theta_%d = %e, "
+		      "max change = %e (target = %e)\n",
+		      m, eig[0], k+1, eig[k], dmax, Lanczos_epsilon);
+
+	      if(dmax < Lanczos_epsilon*0.5)
+		converged = 1;
+	    }
+
+	  for(int c=0; c<=k; c++) eig_old[c] = eig[c];
+	  eig_max_old = eig[m-1];
+	  have_prev = 1;
+	}
+
+      if(converged)
+	break;
+
+      /* next Lanczos vector */
+      if(j < mmax-1)
+	{
+	  lv[j+1] = qpb_spinor_field_init();
+	  n_alloc = j+2;
+	  if(beta[j] < 1e-12)
+	    {
+	      /* invariant subspace found -- restart with a fresh random vector,
+		 orthogonalized against the existing basis and normalized */
+	      qpb_spinor_field_set_random(lv[j+1]);
+	      for(int i=0; i<=j; i++)
+		{
+		  qpb_complex_double c;
+		  qpb_spinor_xdoty(&c, lv[i], lv[j+1]);
+		  qpb_spinor_axpy(lv[j+1], (qpb_complex){-c.re, -c.im},
+				  lv[i], lv[j+1]);
+		}
+	      qpb_double nn;
+	      qpb_spinor_xdotx(&nn, lv[j+1]);
+	      qpb_spinor_ax(lv[j+1], (qpb_complex){1./sqrt(nn), 0.}, lv[j+1]);
 	    }
 	  else
 	    {
-	      qpb_spinor_ax(lv[i+1], (qpb_complex){1./beta[i], 0.}, av);
+	      qpb_spinor_ax(lv[j+1], (qpb_complex){1./beta[j], 0.}, av);
 	    }
 	}
     }
 
-  /* diagonalize the symmetric tridiagonal T (alpha[0..m-1], beta[0..m-2]) */
+  if(!converged)
+    error(" Deflation: WARNING -- Lanczos hit m_max = %d without reaching "
+	  "eps = %e; retained modes and theta_%d may be under-converged "
+	  "(unsafe if the shrunk Zolotarev interval is in use)\n",
+	  mmax, Lanczos_epsilon, k+1);
+
+  /* ---- full eigendecomposition at the converged dimension, for lifting ---- */
   gsl_matrix *T = gsl_matrix_calloc(m, m);
   for(int i=0; i<m; i++)
     gsl_matrix_set(T, i, i, alpha[i]);
@@ -542,9 +616,16 @@ build_deflation_subspace(qpb_double *min_eigv_squared_out,
   gsl_eigen_symmv_sort(eval, evec, GSL_EIGEN_SORT_VAL_ASC);
   gsl_eigen_symmv_free(ws);
 
-  /* Harvest the spectral interval of X^2 from the tridiagonal edges. */
-  if(min_eigv_squared_out) *min_eigv_squared_out = gsl_vector_get(eval, 0);
-  if(max_eigv_squared_out) *max_eigv_squared_out = gsl_vector_get(eval, m-1);
+  /* Spectral data for the caller. theta_{k+1} is eval[k] (0-indexed); its
+     eigenVECTOR is never lifted -- only the value is needed. */
+  qpb_double theta_1   = gsl_vector_get(eval, 0);
+  qpb_double theta_k   = gsl_vector_get(eval, k-1);
+  qpb_double theta_kp1 = gsl_vector_get(eval, k);
+  qpb_double theta_max = gsl_vector_get(eval, m-1);
+
+  if(theta_1_out)   *theta_1_out   = theta_1;
+  if(theta_kp1_out) *theta_kp1_out = theta_kp1;
+  if(theta_max_out) *theta_max_out = theta_max;
 
   /* lift the k lowest Ritz vectors:  V_c = sum_i evec[i][c] v_i */
   for(int c=0; c<k; c++)
@@ -577,27 +658,34 @@ build_deflation_subspace(qpb_double *min_eigv_squared_out,
       qpb_spinor_ax(defl_V[a], (qpb_complex){1./sqrt(n2), 0.}, defl_V[a]);
     }
 
-  /* Ritz residuals ||X^2 V_c - theta_c V_c|| : accuracy check for the subspace.
-     If the higher modes' residuals are loose, increase QPB_DEFL_M. */
+  /* Ritz residuals ||X^2 V_c - theta_c V_c|| (explicit, post-orthonormalization) */
   print(" Deflation: X^2 low Ritz values / residuals (post-orthonormalization):\n");
   for(int c=0; c<k; c++)
     {
       X_op(tmp, defl_V[c]);
-      X_op(av,  tmp);                        /* av = X^2 V_c */
+      X_op(av,  tmp);
       kapps += 2;
       qpb_complex_double th;
-      qpb_spinor_xdoty(&th, defl_V[c], av);  /* theta_c = <V_c, X^2 V_c> */
+      qpb_spinor_xdoty(&th, defl_V[c], av);
       qpb_spinor_axpy(av, (qpb_complex){-th.re, 0.}, defl_V[c], av);
       qpb_double rr;
       qpb_spinor_xdotx(&rr, av);
       print("   mode %2d: theta = %+e, ||res|| = %e\n", c, th.re, sqrt(rr));
     }
 
+  /* boundary diagnostics: is the cut at k slicing through a cluster? */
+  print(" Deflation: theta_1 = %e, theta_%d = %e, theta_%d = %e, "
+	"theta_max = %e\n", theta_1, k, theta_k, k+1, theta_kp1, theta_max);
+  print(" Deflation: boundary gap theta_%d/theta_%d = %.4f%s\n",
+	k+1, k, theta_kp1/theta_k,
+	(theta_kp1/theta_k < 1.2)
+	  ? "   <-- WARNING: k splits a near-degenerate cluster" : "");
+
   /* W = V^dag X V  (k x k Hermitian).  One kernel apply per column. */
   gsl_matrix_complex *Wm = gsl_matrix_complex_alloc(k, k);
   for(int j=0; j<k; j++)
     {
-      X_op(tmp, defl_V[j]);                  /* tmp = X V_j */
+      X_op(tmp, defl_V[j]);
       kapps += 1;
       for(int i=0; i<k; i++)
 	{
@@ -624,7 +712,6 @@ build_deflation_subspace(qpb_double *min_eigv_squared_out,
 	    double sg = (gsl_vector_get(th, mm) >= 0.) ? 1. : -1.;
 	    gsl_complex qim = gsl_matrix_complex_get(Q, i, mm);
 	    gsl_complex qlm = gsl_matrix_complex_get(Q, l, mm);
-	    /* qim * conj(qlm) */
 	    double pr = GSL_REAL(qim)*GSL_REAL(qlm) + GSL_IMAG(qim)*GSL_IMAG(qlm);
 	    double pi = GSL_IMAG(qim)*GSL_REAL(qlm) - GSL_REAL(qim)*GSL_IMAG(qlm);
 	    sr += sg*pr;
@@ -661,22 +748,24 @@ build_deflation_subspace(qpb_double *min_eigv_squared_out,
   gsl_vector_free(th);
   gsl_matrix_complex_free(Q);
 
-  for(int i=0; i<m; i++)
+  for(int i=0; i<n_alloc; i++)
     qpb_spinor_field_finalize(lv[i]);
   free(lv);
   qpb_spinor_field_finalize(av);
   qpb_spinor_field_finalize(tmp);
   free(alpha);
   free(beta);
+  free(eig);
+  free(eig_old);
 
   defl_k = k;
   defl_built = 1;
 
   tb = qpb_stop_watch(tb);
   print(" Deflation: kernel applications for subspace build = %d\n", kapps);
-  print(" Deflation: subspace ready (k=%d), build t = %g secs\n", k, tb);
+  print(" Deflation: subspace ready (k=%d, m=%d), build t = %g secs\n", k, m, tb);
 
-  return;
+  return m;
 }
 
 
@@ -768,8 +857,21 @@ qpb_overlap_Zolotarev_init(void * gauge, qpb_clover_term clover, \
        standalone adaptive routine. */
     if(QPB_DEFL_K > 0)
     {
-      build_deflation_subspace(&min_eigv_squared, &max_eigv_squared);
-      print(" Total number of Lanczos algorithm iterations = %d\n", QPB_DEFL_M);
+      qpb_double theta_1, theta_kp1, theta_max;
+      int Lanczos_iters = build_deflation_subspace(Lanczos_epsilon,
+                                &theta_1, &theta_kp1, &theta_max);
+      print(" Total number of Lanczos algorithm iterations = %d\n",
+                                                              Lanczos_iters);
+      max_eigv_squared = theta_max;
+#if QPB_DEFL_SHRINK_INTERVAL
+      /* Low modes are handled exactly by V/sign(W), so the rational only ever
+         acts on P_high x and need only be accurate on [theta_{k+1}, lambda_max^2]. */
+      min_eigv_squared = theta_kp1;
+      print(" Zolotarev lower bound = theta_%d (deflated range)\n", QPB_DEFL_K+1);
+#else
+      min_eigv_squared = theta_1;
+      print(" Zolotarev lower bound = theta_1 (legacy full range)\n");
+#endif
     }
     else
     {
