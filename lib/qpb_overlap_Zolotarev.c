@@ -1219,7 +1219,15 @@ preconditioner_bicgstab_2(qpb_spinor_field x, qpb_spinor_field b)
   rho = gamma;
 
   for(iters = 1; iters < prec2_solver_max_iter; iters++) {
-    if(res_norm / b_norm <= prec2_solver_epsilon) break;
+    if(res_norm / b_norm <= prec2_solver_epsilon) {
+      // True residual check: r = b - D_ov^prec2·x
+      apply_overlap(LEVEL_PREC2, u, x);
+      qpb_spinor_xmy(r, b, u);
+      qpb_spinor_xdotx(&res_norm, r);
+      // Verify that the true residual is below the threshold
+      if(res_norm / b_norm <= prec2_solver_epsilon)
+        break;
+    }
 
     qpb_spinor_xdoty(&gamma, r0_hat, r);
     beta = CMUL(CDEV(gamma, rho), CDEV(alpha, omega));
@@ -1301,7 +1309,15 @@ preconditioner_bicgstab(qpb_spinor_field x, qpb_spinor_field b)
   rho = gamma;
 
   for(iters = 1; iters < prec_solver_max_iter; iters++) {
-    if(res_norm / b_norm <= prec_solver_epsilon) break;
+    if(res_norm / b_norm <= prec_solver_epsilon) {
+      // True residual check: r = b - D_ov^prec·x
+      apply_overlap(LEVEL_PREC, u, x);
+      qpb_spinor_xmy(r, b, u);
+      qpb_spinor_xdotx(&res_norm, r);
+      // Verify that the true residual is below the threshold
+      if(res_norm / b_norm <= prec_solver_epsilon)
+        break;
+    }
 
     qpb_spinor_xdoty(&gamma, r0_hat, r);
     beta = CMUL(CDEV(gamma, rho), CDEV(alpha, omega));
@@ -1340,11 +1356,6 @@ preconditioner_bicgstab(qpb_spinor_field x, qpb_spinor_field b)
     qpb_spinor_xdotx(&res_norm, r);      /* recurrence residual for exit test */
   }
 
-  /* Explicit final (true) residual, reported for diagnostics — the
-     recurrence residual used in the exit test can drift from b - D_ov^prec·x. */
-  apply_overlap(LEVEL_PREC, u, x);
-  qpb_spinor_xmy(r, b, u);
-  qpb_spinor_xdotx(&res_norm, r);
   print(" \t\tpreconditioner BiCGStab: %d iters, relative residual = %e\n",
         iters, res_norm / b_norm);
 
