@@ -124,7 +124,12 @@ qpb_read_ildg_gauge(qpb_gauge_field gauge_field, char fname[])
       /* process ildg-format data */
       xmlDocPtr doc;
       ildg_format[ildg_format_len-1] = '\0';
-      doc = xmlReadMemory(ildg_format, ildg_format_len, "ildg.xml", NULL, 0);
+      /* Pass only the XML text to the parser. Using strlen (rather than
+	 ildg_format_len, which counts the appended '\0' and can include LIME
+	 zero-padding) stops at the end of the document, so no trailing NUL or
+	 padding bytes reach libxml2. Newer, stricter libxml2 versions reject
+	 those as "Extra content at the end of the document" */
+      doc = xmlReadMemory(ildg_format, (int)strlen(ildg_format), "ildg.xml", NULL, 0);
       if(doc == NULL) 
 	{
 	  fprintf(stderr, " failed read ildg-format data\n");
