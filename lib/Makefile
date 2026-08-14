@@ -105,6 +105,7 @@ SOURCES = qpb_init\
 	qpb_gauss_smear\
 	qpb_ft\
 	qpb_stop_watch\
+	qpb_twisted_mass_lanczos\
 	qpb_finalize
 
 PYTARGETS = qpb_apply_bri_dslash_site\

@@ -1,27 +1,27 @@
-include ../Makefile.in
+include ../../Makefile.in
 
 ifndef V
        V = 0
 endif
 
-ifeq ($(V), 1) 
+ifeq ($(V), 1)
 	E = @echo > /dev/null
-	C = 
+	C =
 else
 	E = @echo
 	C = @
 	MAKE += --no-print-directory
 endif
 
-DIRS = gauge-smear invert mesons eigens baryons overlap-kl multiq overlap-Chebyshev overlap-kl-pfrac overlap-Neuberger overlap-Zolotarev twisted-mass-kl
+DIRS = eigens
 
-all: 
+all:
 	-$(C)for d in $(DIRS); do ($(MAKE) -C $$d); done
 
-debug: 
+debug:
 	-$(C)for d in $(DIRS); do ($(MAKE) -C $$d debug); done
 
-prof: 
+prof:
 	-$(C)for d in $(DIRS); do ($(MAKE) -C $$d prof); done
 
 clean:

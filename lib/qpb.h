@@ -77,4 +77,5 @@
 #include <qpb_mesons_2pt_stoch.h>
 #include <qpb_baryons_2pt.h>
 #include <qpb_multiq_2pt.h>
+#include <qpb_twisted_mass_lanczos.h>
 #endif /* _QPB_H */
