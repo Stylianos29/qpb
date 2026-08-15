@@ -22,9 +22,9 @@ testprogs/source_rms/source_rms
 
 install/*
 
-mainprogs/*/*/run.sh
-mainprogs/*/*/test.txt
-mainprogs/*/*/test.err
+mainprogs/**/run.sh
+mainprogs/**/test.txt
+mainprogs/**/test.err
 
 mainprogs/overlap-Chebyshev/ginsparg-wilson-relation/ginsparg-wilson-relation
 mainprogs/overlap-Chebyshev/invert/invert
@@ -47,6 +47,8 @@ mainprogs/overlap-Neuberger/sign-squared-violation/sign-squared-violation
 mainprogs/overlap-Zolotarev/invert/invert
 mainprogs/overlap-Neuberger/mesons/mesons
 mainprogs/overlap-Zolotarev/sign-squared-violation/sign-squared-violation
+
+mainprogs/twisted-mass-kl/eigens/eigens
 
 */*/qpb_parameters_scan_files/
 */*/*/qpb_parameters_scan_files/
