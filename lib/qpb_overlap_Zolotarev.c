@@ -122,6 +122,83 @@ calculate_normalization_constant(qpb_double *c, int n, \
 }
 
 
+/* Build the (c, b, norm) triple of a degree-(n,n) Zolotarev approximation
+on |X| in [min_eigv, max_eigv]. Factored out so it can be called repeatedly
+by select_delta_min() (once per trial alpha) as well as once by
+qpb_overlap_Zolotarev_init(), instead of duplicating the construction. */
+static void
+build_Zolotarev_coeffs(qpb_double min_eigv, qpb_double max_eigv, int n,
+                       qpb_double *c, qpb_double *b, qpb_double *norm)
+{
+  qpb_double k_squared = (min_eigv*min_eigv)/(max_eigv*max_eigv);
+  qpb_double k_prime   = sqrt(1.0 - k_squared);
+  qpb_double K_prime   = gsl_sf_ellint_Kcomp(k_prime, GSL_PREC_DOUBLE);
+  calculate_c_coefficients(c, n, k_prime, K_prime);
+  calculate_b_coefficients(b, c, n);
+  *norm = calculate_normalization_constant(c, n, min_eigv, max_eigv);
+}
+
+
+/* Z_n at a PHYSICAL argument x, for the coefficients (c, norm) built by
+build_Zolotarev_coeffs() with the given min_eigv: sign_function_product_form
+expects the rescaled argument x/min_eigv, the division is internal here so
+callers always pass physical spectral points. */
+static qpb_double
+Zolotarev_at(qpb_double x, qpb_double min_eigv, int n,
+             qpb_double *c, qpb_double norm)
+{
+  return norm * sign_function_product_form(x / min_eigv, n, c);
+}
+
+
+/* Select the largest delta_min = alpha^2/min_eigv_sq_raw such that the
+resulting Zolotarev approximation stays resonance-safe and accuracy-safe
+across the window [rho - 1.5*lamR, rho], where lamR is the leftmost real
+kernel mode (see ZOLOTAREV_DELTA_MIN_SPEC.md for the physics). Returns -1.0
+if no trial alpha in the scan satisfies both conditions everywhere in the
+window: that means no lower bound is simultaneously safe and accurate at
+this order, and the caller must raise n rather than fall back to a default.
+
+Do not replace the full ascending scan with a bisection or a "first pass,
+scanning downward" search: for n >= 2, Z_n(rho - delta) is not monotonic in
+alpha (multiple crossings), so only scanning the whole range and keeping the
+largest passing alpha is robust to arbitrary lobe structure. Do not test
+fabs(Z) either: |Z_n(rho-delta)| >= theta*am alone would also accept the
+index-flipped case (Z_n > 1 with large negative margin) that this selector
+exists to reject. */
+static qpb_double
+select_delta_min(qpb_double min_eigv_sq_raw, qpb_double max_eigv,
+                 qpb_double rho, qpb_double am, qpb_double lamR,
+                 int n, qpb_double theta)
+{
+  qpb_double lmin = sqrt(min_eigv_sq_raw);
+  qpb_double C = rho + 0.5*am, R = rho - 0.5*am;
+  qpb_double xlo = rho - 1.5*lamR, xhi = rho;
+  qpb_double *c = qpb_alloc(sizeof(qpb_double)*2*n);
+  qpb_double *b = qpb_alloc(sizeof(qpb_double)*n);
+  qpb_double best = -1.0, norm;
+
+  for(int j=0; j<200; j++)                 /* ascending in alpha */
+  {
+    qpb_double alpha = lmin * pow(10.0, -4.0 + 4.0*j/199.0);
+    build_Zolotarev_coeffs(alpha, max_eigv, n, c, b, &norm);
+
+    int ok = 1;
+    for(int i=0; i<20 && ok; i++)
+    {
+      qpb_double x = xlo + (xhi - xlo)*i/19.0;
+      qpb_double Z = Zolotarev_at(x, alpha, n, c, norm);
+      if (Z >= 1.0)             ok = 0;    /* index safety */
+      if (C - R*Z < theta*am)   ok = 0;    /* margin       */
+    }
+    if (ok) best = alpha;                  /* keep the LARGEST passing alpha */
+  }
+
+  free(c); free(b);
+  return (best > 0.0) ? (best*best)/min_eigv_sq_raw : -1.0;
+}
+
+
 /* --------------------- EXTREME EIGENVALUES FUNCTIONS --------------------- */
 
 INLINE void
@@ -160,18 +237,23 @@ tridiag_eigenv(qpb_double *eig, qpb_double *a, qpb_double *b, int n)
 
 
 int
-qpb_extreme_eigenvalues_of_X_squared(qpb_double *min_eigv, \
-  qpb_double *max_eigv, qpb_double Lanczos_epsilon, int max_iters)
+qpb_extreme_eigenvalues_of_X_squared(qpb_double *min_eigv,
+    qpb_double *max_eigv, qpb_double bare_mass,
+    qpb_double Lanczos_epsilon, int max_iters, int min_iters)
 {
-  /* It calculates the extreme eigenvalues of the eigenvalue spectrum 
+  /* It calculates the extreme eigenvalues of the eigenvalue spectrum
   of H^2, H ≡ γ5*Kernel(x), with: Kernel(x) = (a*D - ρ)(x), using the Lanczos
-  algorithm. */
+  algorithm. 'min_iters' is a floor on the number of iterations before the
+  convergence check is allowed to stop the loop: Lanczos approaches
+  lambda_min from above and can sit on a plateau, so a loose tolerance
+  combined with a small iteration count can stop early on a not-yet-converged
+  estimate (pass 0 for the historical no-floor behavior). */
 
   qpb_lanczos_init();
 
   qpb_clover_term clover_term = ov_params.clover;
   qpb_double c_sw = ov_params.c_sw;
-  qpb_double mass = ov_params.m_bare; // Kernel operator mass set at -rho
+  qpb_double mass = bare_mass;
   qpb_double kappa = 1./(2*mass+8.);
   void *solver_arg_links = ov_params.gauge_ptr;
   
@@ -193,13 +275,19 @@ qpb_extreme_eigenvalues_of_X_squared(qpb_double *min_eigv, \
     if (i%100==0)
       print("\titer = %4d, CN = %e/%e = %e (change = %e, target = %e)\n", i+1,\
                       eig[i], eig[0], eig[i]/eig[0], dlambda, Lanczos_epsilon);
-    if(dlambda < Lanczos_epsilon*0.5)
+    if((i+1 >= min_iters) && dlambda < Lanczos_epsilon*0.5)
       break;
     lambda0 = lambda;
   }
 
   *min_eigv = (qpb_double) eig[0];
   *max_eigv = (qpb_double) eig[i-1];
+
+  free(a);
+  free(b);
+  free(eig);
+
+  qpb_lanczos_finalize();
 
   return i;
 }
@@ -287,23 +375,69 @@ qpb_overlap_Zolotarev_init(void * gauge, qpb_clover_term clover, \
     X = g5*(D - rho), are calculated and are stored inside the
     'min_eigv_squared' and 'max_eigv_squared'variables correspondingly. */
     int Lanczos_iters = qpb_extreme_eigenvalues_of_X_squared(&min_eigv_squared,\
-                      &max_eigv_squared, Lanczos_epsilon, Lanczos_max_iters);
+                      &max_eigv_squared, ov_params.m_bare,  // Kernel operator mass set at -rho
+                      Lanczos_epsilon, Lanczos_max_iters, 0);
     print(" Total number of Lanczos algorithm iterations = %d\n", \
                                                                 Lanczos_iters);
-    /* If requested the extreme eigenvalues are modified accordingly */
-    if (delta_min != 1.0)
-      min_eigv_squared *= delta_min;
+    /* delta_min is kept only for source compatibility with existing callers;
+    a fixed multiplier here can drive the Zolotarev approximation into
+    resonance with the leftmost kernel mode (see
+    ZOLOTAREV_DELTA_MIN_SPEC.md), so it is no longer applied. The safe
+    replacement, 'selected_delta_min' below, is computed automatically. */
+    (void) delta_min;
+
     if (delta_max != 1.0)
       max_eigv_squared *= delta_max;
-    
+
+    /* delta = sigma_min(a D_ker(0)), the leftmost real mode of the
+    *unshifted* kernel (mass = 0, not the Kernel operator's -rho shift): this
+    is the quantity the resonance condition is anchored to, not lambda_min
+    of X. Measured with a second, looser Lanczos run since only ~2 decimal
+    places are needed, but with an iteration floor since Lanczos approaches
+    lambda_min from above and can plateau before a loose tolerance is met. */
+    qpb_double delta_min_eigv_squared, delta_max_eigv_squared;
+    int delta_Lanczos_iters = qpb_extreme_eigenvalues_of_X_squared(
+                      &delta_min_eigv_squared, &delta_max_eigv_squared, 0.0,
+                      1e-5, Lanczos_max_iters, 50);
+    print(" Total number of Lanczos algorithm iterations (delta) = %d\n", \
+                                                          delta_Lanczos_iters);
+    qpb_double delta = sqrt(delta_min_eigv_squared);
+    print(" delta (leftmost real kernel mode)        = %.6f\n", delta);
+    print(" sanity check: unshifted kernel max eigv^2 = %.6f "
+          "(expect ~64-67 for rho=1, c_sw=0, Wilson kernel)\n", \
+                                                        delta_max_eigv_squared);
+
+    qpb_double max_eigv = sqrt(max_eigv_squared);
+    qpb_double selected_delta_min = select_delta_min(min_eigv_squared, \
+                      max_eigv, rho, mass, delta, Zol_iters, 0.5);
+    if(selected_delta_min <= 0.0)
+    {
+      error(" !\n");
+      error(" select_delta_min: no value of alpha simultaneously keeps "
+            "Z_n(x) < 1 and the margin theta*am across the window "
+            "[rho - 1.5*delta, rho].\n");
+      error(" This Zolotarev order (n = %d) cannot safely represent am = "
+            "%g at rho = %g with delta = %g; raise n.\n", Zol_iters, mass, \
+                                                                    rho, delta);
+      error(" !\n");
+      exit(QPB_PARAMETERS_ERROR);
+    }
+
+    min_eigv_squared *= selected_delta_min;
+
     print(" Min eigenvalue squared = %.16f\n", min_eigv_squared);
     print(" Max eigenvalue squared = %.16f\n", max_eigv_squared);
+    print(" selected delta_min                       = %.6e\n", \
+                                                            selected_delta_min);
 
     /* And then their square root value is stored inside the 'min_eigv' and
     'max_eigv' attributes of the 'ov_params' struct. */
-    
+
     ov_params.min_eigv = sqrt(min_eigv_squared);
-    ov_params.max_eigv = sqrt(max_eigv_squared);
+    ov_params.max_eigv = max_eigv;
+
+    print(" resulting alpha = sqrt(delta_min*lam2min) = %.6e\n", \
+                                                            ov_params.min_eigv);
 
     /* ----------------------- expansion coefficients ----------------------- */
 
@@ -315,25 +449,31 @@ qpb_overlap_Zolotarev_init(void * gauge, qpb_clover_term clover, \
     shifts = qpb_alloc(sizeof(qpb_double)*Zolotarev_order);
     numerators = qpb_alloc(sizeof(qpb_double)*Zolotarev_order);
 
-    /* Compute elliptic parameters */
-    qpb_double k_squared = min_eigv_squared/max_eigv_squared;
-    qpb_double k_prime = sqrt(1.0 - k_squared);
-    
-    /* Compute complete elliptic integrals */
-    qpb_double K_prime = gsl_sf_ellint_Kcomp(k_prime, GSL_PREC_DOUBLE);
-
     /* Allocate arrays */
     qpb_double *c = qpb_alloc(sizeof(qpb_double)*2*Zolotarev_order);
     qpb_double *b = qpb_alloc(sizeof(qpb_double)*Zolotarev_order);
-    
-    /* Compute coefficients */
-    calculate_c_coefficients(c, Zolotarev_order, k_prime, K_prime);
-    calculate_b_coefficients(b, c, Zolotarev_order);
-    
-    /* Compute normalization constant */
-    qpb_double normalization_constant = calculate_normalization_constant(
-                                  c, Zolotarev_order, \
-                                  ov_params.min_eigv, ov_params.max_eigv);
+    qpb_double normalization_constant;
+
+    build_Zolotarev_coeffs(ov_params.min_eigv, ov_params.max_eigv, \
+                Zolotarev_order, c, b, &normalization_constant);
+
+    /* --------------------------- diagnostics --------------------------- */
+
+    qpb_double C = rho + 0.5*mass, R = rho - 0.5*mass;
+    qpb_double Z_at_rho_minus_delta = Zolotarev_at(rho - delta, \
+                ov_params.min_eigv, Zolotarev_order, c, normalization_constant);
+    qpb_double sigma_min = C - R*Z_at_rho_minus_delta;
+    qpb_double Z_at_max = Zolotarev_at(ov_params.max_eigv, ov_params.min_eigv, \
+                Zolotarev_order, c, normalization_constant);
+    qpb_double kappa_CGNR = pow((C + R*Z_at_max)/sigma_min, 2);
+
+    print(" Z_n(rho - delta)                         = %.6f\n", \
+                                                          Z_at_rho_minus_delta);
+    print(" predicted sigma_min(D_ov)                = %.6e\n", sigma_min);
+    if(mass != 0.0)
+      print(" sigma_min / am                           = %.6f\n", \
+                                                                sigma_min/mass);
+    print(" predicted kappa_CGNR                     = %.6e\n", kappa_CGNR);
 
     constant_term = normalization_constant / ov_params.min_eigv;
 
@@ -341,9 +481,10 @@ qpb_overlap_Zolotarev_init(void * gauge, qpb_clover_term clover, \
     {
       shifts[i] = c[2*i] * ov_params.min_eigv * ov_params.min_eigv;
       numerators[i] = normalization_constant * b[i] * ov_params.min_eigv;
-      // print("numerator[%d] = %.25f, shift[%d] = %.25f\n", i, numerators[i], \
-                                                              i, shifts[i]);
     }
+
+    free(c);
+    free(b);
 
     // Modify the numerical constants of the partial fraction expansions using
     // the scaling parameter
