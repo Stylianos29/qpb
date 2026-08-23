@@ -976,7 +976,8 @@ main(int argc, char *argv[])
 
   qpb_overlap_Zolotarev_init(solver_arg_links, clover_term, Zol_order, \
                   rho, c_sw, mass, scaling_factor, ms_epsilon, ms_max_iters, \
-                          Lanczos_epsilon, Lanczos_max_iters, delta_max, delta_min);
+                          Lanczos_epsilon, Lanczos_max_iters, delta_max, delta_min, \
+                          0.0 /* kernel_delta: not yet supplied, always measure it */);
   qpb_double t_overhead = qpb_stop_watch(t);
   print(" Total overhead time: %f sec\n", t_overhead);
 

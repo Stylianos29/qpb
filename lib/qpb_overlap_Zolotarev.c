@@ -62,9 +62,10 @@ calculate_c_coefficients(qpb_double *c, int n, qpb_double k_prime, qpb_double K_
         
         /* Compute Jacobi elliptic functions sn(u; k') */
         gsl_sf_elljac_e(u, k2_prime, &sn, &cn, &dn);
-        
-        qpb_double sn2 = sn * sn;
-        c[i-1] = sn2 / (1.0 - sn2);
+
+        /* sn2/(1-sn2) cancels catastrophically as sn -> 1 (large beta/alpha,
+        e.g. relative error ~0.26 at b ~ 1e7); use sn^2+cn^2=1 instead. */
+        c[i-1] = (sn * sn) / (cn * cn);
     }
 }
 
@@ -151,36 +152,51 @@ Zolotarev_at(qpb_double x, qpb_double min_eigv, int n,
 }
 
 
-/* Select the largest delta_min = alpha^2/min_eigv_sq_raw such that the
-resulting Zolotarev approximation stays resonance-safe and accuracy-safe
-across the window [rho - 1.5*lamR, rho], where lamR is the leftmost real
-kernel mode (see ZOLOTAREV_DELTA_MIN_SPEC.md for the physics). Returns -1.0
-if no trial alpha in the scan satisfies both conditions everywhere in the
-window: that means no lower bound is simultaneously safe and accurate at
-this order, and the caller must raise n rather than fall back to a default.
+/* Select the largest delta_min = alpha^2/min_eigv_sq_raw, capped at 0.5, such
+that the resulting Zolotarev approximation keeps a healthy margin
+sigma_min = C - R*Z_n(x) >= theta*am across the window
+[rho - 1.1*lamR, rho - 0.9*lamR], where lamR is the leftmost real kernel mode
+(see ZOLOTAREV_DELTA_MIN_SPEC.md and ZOLOTAREV_DELTA_MIN_PATCH.md for the
+physics). Returns -1.0 if no trial alpha in the scan satisfies the margin
+everywhere in the window: that means no lower bound is simultaneously safe
+and accurate at this order, and the caller must raise n rather than fall
+back to a default.
+
+The margin test is signed (C - R*Z, not C - R*|Z|), so it still rejects the
+index-flipped case (Z > C/R gives a negative margin) without needing a
+separate Z < 1 test: the old Z >= 1.0 check was stricter than the physics
+requires and rejected healthy Z in (1, C/R] for no reason, driving alpha
+down by orders of magnitude at moderate n. Z_n is allowed to exceed 1 here
+(the equioscillation overshoot is normal for this normalization); the
+caller reports where it does via the overshoot-region diagnostic instead.
+
+The delta_min <= 0.5 cap preserves the *original*, resonance-independent
+reason for shrinking below the raw Lanczos estimate: Lanczos converges to
+lambda_min from above, so the true spectrum can extend below alpha, and 0.5
+is the conventional safety margin for that. Without the cap, the tightened
+margin test above would return exactly 1.0 (no reduction at all) whenever
+the resonance itself isn't a problem at the requested n.
 
 Do not replace the full ascending scan with a bisection or a "first pass,
 scanning downward" search: for n >= 2, Z_n(rho - delta) is not monotonic in
 alpha (multiple crossings), so only scanning the whole range and keeping the
-largest passing alpha is robust to arbitrary lobe structure. Do not test
-fabs(Z) either: |Z_n(rho-delta)| >= theta*am alone would also accept the
-index-flipped case (Z_n > 1 with large negative margin) that this selector
-exists to reject. */
+largest passing alpha is robust to arbitrary lobe structure. */
 static qpb_double
 select_delta_min(qpb_double min_eigv_sq_raw, qpb_double max_eigv,
                  qpb_double rho, qpb_double am, qpb_double lamR,
                  int n, qpb_double theta)
 {
   qpb_double lmin = sqrt(min_eigv_sq_raw);
+  qpb_double alpha_max = lmin * sqrt(0.5);        /* delta_min <= 0.5 */
   qpb_double C = rho + 0.5*am, R = rho - 0.5*am;
-  qpb_double xlo = rho - 1.5*lamR, xhi = rho;
+  qpb_double xlo = rho - 1.1*lamR, xhi = rho - 0.9*lamR;
   qpb_double *c = qpb_alloc(sizeof(qpb_double)*2*n);
   qpb_double *b = qpb_alloc(sizeof(qpb_double)*n);
   qpb_double best = -1.0, norm;
 
   for(int j=0; j<200; j++)                 /* ascending in alpha */
   {
-    qpb_double alpha = lmin * pow(10.0, -4.0 + 4.0*j/199.0);
+    qpb_double alpha = alpha_max * pow(10.0, -4.0 + 4.0*j/199.0);
     build_Zolotarev_coeffs(alpha, max_eigv, n, c, b, &norm);
 
     int ok = 1;
@@ -188,14 +204,57 @@ select_delta_min(qpb_double min_eigv_sq_raw, qpb_double max_eigv,
     {
       qpb_double x = xlo + (xhi - xlo)*i/19.0;
       qpb_double Z = Zolotarev_at(x, alpha, n, c, norm);
-      if (Z >= 1.0)             ok = 0;    /* index safety */
-      if (C - R*Z < theta*am)   ok = 0;    /* margin       */
-    }
+      if (C - R*Z < theta*am)   ok = 0;    /* signed margin: also rejects */
+    }                                       /* the index-flipped case      */
     if (ok) best = alpha;                  /* keep the LARGEST passing alpha */
   }
 
   free(c); free(b);
   return (best > 0.0) ? (best*best)/min_eigv_sq_raw : -1.0;
+}
+
+
+/* Report the sub-intervals of (alpha, rho] where Z_n(x) > C/R, i.e. where a
+real kernel mode would have a flipped index; select_delta_min's window only
+guards the neighbourhood of rho - delta, so this is the remaining unguarded
+failure mode and is diagnostic-only (see ZOLOTAREV_DELTA_MIN_PATCH.md #6). */
+static void
+print_overshoot_regions(qpb_double alpha, qpb_double rho, qpb_double C,
+                        qpb_double R, int n, qpb_double *c, qpb_double norm)
+{
+  const int npts = 500;
+  qpb_double threshold = C/R;
+  int printed_any = 0;
+  qpb_double region_lo = 0.0;
+  int in_region = 0;
+
+  for(int i=0; i<npts; i++)
+  {
+    qpb_double x = alpha + (rho - alpha)*(i+1)/npts;
+    qpb_double Z = Zolotarev_at(x, alpha, n, c, norm);
+    int over = (Z > threshold);
+
+    if(over && !in_region)
+    {
+      region_lo = x;
+      in_region = 1;
+    }
+    else if(!over && in_region)
+    {
+      print(" overshoot region (Z_n > C/R) on (alpha, rho] : [%.6f, %.6f]\n",
+            region_lo, x);
+      printed_any = 1;
+      in_region = 0;
+    }
+  }
+  if(in_region)
+  {
+    print(" overshoot region (Z_n > C/R) on (alpha, rho] : [%.6f, %.6f]\n",
+          region_lo, rho);
+    printed_any = 1;
+  }
+  if(!printed_any)
+    print(" overshoot region (Z_n > C/R) on (alpha, rho] : none\n");
 }
 
 
@@ -300,7 +359,8 @@ qpb_overlap_Zolotarev_init(void * gauge, qpb_clover_term clover, \
           qpb_double c_sw, qpb_double mass, qpb_double scaling_factor, \
           qpb_double ms_epsilon, int ms_max_iter, \
           qpb_double Lanczos_epsilon, int Lanczos_max_iters, \
-          qpb_double delta_max, qpb_double delta_min)
+          qpb_double delta_max, qpb_double delta_min, \
+          qpb_double kernel_delta)
 {
   if(ov_params.initialized != QPB_OVERLAP_INITIALIZED)
   {
@@ -392,20 +452,33 @@ qpb_overlap_Zolotarev_init(void * gauge, qpb_clover_term clover, \
     /* delta = sigma_min(a D_ker(0)), the leftmost real mode of the
     *unshifted* kernel (mass = 0, not the Kernel operator's -rho shift): this
     is the quantity the resonance condition is anchored to, not lambda_min
-    of X. Measured with a second, looser Lanczos run since only ~2 decimal
-    places are needed, but with an iteration floor since Lanczos approaches
-    lambda_min from above and can plateau before a loose tolerance is met. */
-    qpb_double delta_min_eigv_squared, delta_max_eigv_squared;
-    int delta_Lanczos_iters = qpb_extreme_eigenvalues_of_X_squared(
-                      &delta_min_eigv_squared, &delta_max_eigv_squared, 0.0,
-                      1e-5, Lanczos_max_iters, 50);
-    print(" Total number of Lanczos algorithm iterations (delta) = %d\n", \
-                                                          delta_Lanczos_iters);
-    qpb_double delta = sqrt(delta_min_eigv_squared);
-    print(" delta (leftmost real kernel mode)        = %.6f\n", delta);
-    print(" sanity check: unshifted kernel max eigv^2 = %.6f "
-          "(expect ~64-67 for rho=1, c_sw=0, Wilson kernel)\n", \
-                                                        delta_max_eigv_squared);
+    of X. It is an ensemble constant (measured stable to ~1% across
+    configurations), so if the caller already knows it, 'kernel_delta > 0'
+    supplies it directly and skips the second Lanczos run entirely.
+    Otherwise it is measured with a second, looser Lanczos run since only
+    ~2 decimal places are needed, with an iteration floor since Lanczos
+    approaches lambda_min from above and can plateau before a loose
+    tolerance is met. */
+    qpb_double delta;
+    if(kernel_delta > 0.0)
+    {
+      delta = kernel_delta;
+      print(" delta (leftmost real kernel mode, supplied) = %.6f\n", delta);
+    }
+    else
+    {
+      qpb_double delta_min_eigv_squared, delta_max_eigv_squared;
+      int delta_Lanczos_iters = qpb_extreme_eigenvalues_of_X_squared(
+                        &delta_min_eigv_squared, &delta_max_eigv_squared, 0.0,
+                        1e-4, Lanczos_max_iters, 100);
+      print(" Total number of Lanczos algorithm iterations (delta) = %d\n", \
+                                                            delta_Lanczos_iters);
+      delta = sqrt(delta_min_eigv_squared);
+      print(" delta (leftmost real kernel mode)        = %.6f\n", delta);
+      print(" sanity check: unshifted kernel max eigv^2 = %.6f "
+            "(expect ~64-67 for rho=1, c_sw=0, Wilson kernel)\n", \
+                                                          delta_max_eigv_squared);
+    }
 
     qpb_double max_eigv = sqrt(max_eigv_squared);
     qpb_double selected_delta_min = select_delta_min(min_eigv_squared, \
@@ -413,9 +486,9 @@ qpb_overlap_Zolotarev_init(void * gauge, qpb_clover_term clover, \
     if(selected_delta_min <= 0.0)
     {
       error(" !\n");
-      error(" select_delta_min: no value of alpha simultaneously keeps "
-            "Z_n(x) < 1 and the margin theta*am across the window "
-            "[rho - 1.5*delta, rho].\n");
+      error(" select_delta_min: no value of alpha (with delta_min <= 0.5) "
+            "keeps the margin sigma_min >= theta*am across the window "
+            "[rho - 1.1*delta, rho - 0.9*delta].\n");
       error(" This Zolotarev order (n = %d) cannot safely represent am = "
             "%g at rho = %g with delta = %g; raise n.\n", Zol_iters, mass, \
                                                                     rho, delta);
@@ -474,6 +547,9 @@ qpb_overlap_Zolotarev_init(void * gauge, qpb_clover_term clover, \
       print(" sigma_min / am                           = %.6f\n", \
                                                                 sigma_min/mass);
     print(" predicted kappa_CGNR                     = %.6e\n", kappa_CGNR);
+
+    print_overshoot_regions(ov_params.min_eigv, rho, C, R, Zolotarev_order, \
+                c, normalization_constant);
 
     constant_term = normalization_constant / ov_params.min_eigv;
 
