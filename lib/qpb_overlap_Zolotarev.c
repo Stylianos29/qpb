@@ -526,7 +526,7 @@ qpb_overlap_Zolotarev_init(void * gauge, qpb_clover_term clover, \
       delta = sqrt(delta_min_eigv_squared);
       print(" delta (leftmost real kernel mode)        = %.6f\n", delta);
       print(" sanity check: unshifted kernel max eigv^2 = %.6f "
-            "(expect ~64-67 for rho=1, c_sw=0, Wilson kernel)\n", \
+            "(expect ~61-63 for rho=1, c_sw=0, Wilson kernel)\n", \
                                                           delta_max_eigv_squared);
     }
 
