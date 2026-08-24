@@ -154,13 +154,30 @@ Zolotarev_at(qpb_double x, qpb_double min_eigv, int n,
 
 /* Select the largest delta_min = alpha^2/min_eigv_sq_raw, capped at 0.5, such
 that the resulting Zolotarev approximation keeps a healthy margin
-sigma_min = C - R*Z_n(x) >= theta*am across the window
+sigma_min = C - R*Z_n(x) >= theta_window*am across the window
 [rho - 1.1*lamR, rho - 0.9*lamR], where lamR is the leftmost real kernel mode
-(see ZOLOTAREV_DELTA_MIN_SPEC.md and ZOLOTAREV_DELTA_MIN_PATCH.md for the
-physics). Returns -1.0 if no trial alpha in the scan satisfies the margin
-everywhere in the window: that means no lower bound is simultaneously safe
-and accurate at this order, and the caller must raise n rather than fall
-back to a default.
+(see ZOLOTAREV_DELTA_MIN_SPEC.md, ZOLOTAREV_DELTA_MIN_PATCH.md and
+ZOLOTAREV_PATCH_3.md for the physics). Returns -1.0 if no trial alpha in the
+scan satisfies the margin everywhere in the window: that means no lower
+bound is simultaneously safe and accurate at this order, and the caller
+must raise n rather than fall back to a default.
+
+This window is intentionally narrow, testing only the immediate
+neighbourhood of the resonance point rho - delta: widening it to the full
+[lambda_min, rho - delta] range makes the interior 20-point scan also catch
+genuine mid-range equioscillation overshoot at low n (e.g. n=2), which can
+reject alpha values that are otherwise fine at rho - delta itself - at
+n=2, am=0.05 on the reference config this rejects every trial alpha, where
+the narrow window here finds sigma_min/am ~ 1.0. That broader overshoot is
+real and worth surfacing, but as a report, not a rejection criterion -
+see print_overshoot_regions(), which scans the wide range separately.
+
+theta_window is named to disambiguate it from the unrelated theta_gate used
+by the d_Z quality gate in qpb_overlap_Zolotarev_init: this one controls how
+aggressively alpha is reduced when the danger window is compromised, and
+stays at the decided value 0.5; theta_gate controls a chiral-quality report
+on the final choice and is a different constant entirely. Do not conflate
+the two.
 
 The margin test is signed (C - R*Z, not C - R*|Z|), so it still rejects the
 index-flipped case (Z > C/R gives a negative margin) without needing a
@@ -184,7 +201,7 @@ largest passing alpha is robust to arbitrary lobe structure. */
 static qpb_double
 select_delta_min(qpb_double min_eigv_sq_raw, qpb_double max_eigv,
                  qpb_double rho, qpb_double am, qpb_double lamR,
-                 int n, qpb_double theta)
+                 int n, qpb_double theta_window)
 {
   qpb_double lmin = sqrt(min_eigv_sq_raw);
   qpb_double alpha_max = lmin * sqrt(0.5);        /* delta_min <= 0.5 */
@@ -204,8 +221,8 @@ select_delta_min(qpb_double min_eigv_sq_raw, qpb_double max_eigv,
     {
       qpb_double x = xlo + (xhi - xlo)*i/19.0;
       qpb_double Z = Zolotarev_at(x, alpha, n, c, norm);
-      if (C - R*Z < theta*am)   ok = 0;    /* signed margin: also rejects */
-    }                                       /* the index-flipped case      */
+      if (C - R*Z < theta_window*am)   ok = 0;   /* signed margin: also    */
+    }                                             /* rejects index flips   */
     if (ok) best = alpha;                  /* keep the LARGEST passing alpha */
   }
 
@@ -214,13 +231,19 @@ select_delta_min(qpb_double min_eigv_sq_raw, qpb_double max_eigv,
 }
 
 
-/* Report the sub-intervals of (alpha, rho] where Z_n(x) > C/R, i.e. where a
-real kernel mode would have a flipped index; select_delta_min's window only
-guards the neighbourhood of rho - delta, so this is the remaining unguarded
-failure mode and is diagnostic-only (see ZOLOTAREV_DELTA_MIN_PATCH.md #6). */
+/* Report the sub-intervals of [xlo, xhi] where Z_n(x) > C/R, i.e. where a
+real kernel mode would have a flipped index. Called with the WIDE range
+[lambda_min, rho - delta], deliberately wider than select_delta_min's own
+narrow acceptance window [rho - 1.1*delta, rho - 0.9*delta]: the selector
+only needs to guard the immediate neighbourhood of the resonance point, but
+a genuine overshoot further out (as seen at n=2) is real and still worth
+surfacing even though it isn't grounds for rejecting alpha. Diagnostic-only,
+always printed regardless of whether delta_min needed reducing (see
+ZOLOTAREV_DELTA_MIN_PATCH.md #6 and ZOLOTAREV_PATCH_3.md). */
 static void
-print_overshoot_regions(qpb_double alpha, qpb_double rho, qpb_double C,
-                        qpb_double R, int n, qpb_double *c, qpb_double norm)
+print_overshoot_regions(qpb_double xlo, qpb_double xhi, qpb_double alpha,
+                        qpb_double C, qpb_double R, int n, qpb_double *c,
+                        qpb_double norm)
 {
   const int npts = 500;
   qpb_double threshold = C/R;
@@ -230,7 +253,7 @@ print_overshoot_regions(qpb_double alpha, qpb_double rho, qpb_double C,
 
   for(int i=0; i<npts; i++)
   {
-    qpb_double x = alpha + (rho - alpha)*(i+1)/npts;
+    qpb_double x = xlo + (xhi - xlo)*(i+1)/npts;
     qpb_double Z = Zolotarev_at(x, alpha, n, c, norm);
     int over = (Z > threshold);
 
@@ -241,20 +264,47 @@ print_overshoot_regions(qpb_double alpha, qpb_double rho, qpb_double C,
     }
     else if(!over && in_region)
     {
-      print(" overshoot region (Z_n > C/R) on (alpha, rho] : [%.6f, %.6f]\n",
-            region_lo, x);
+      print(" overshoot region (Z_n > C/R) on [lambda_min, rho-delta] : "
+            "[%.6f, %.6f]\n", region_lo, x);
       printed_any = 1;
       in_region = 0;
     }
   }
   if(in_region)
   {
-    print(" overshoot region (Z_n > C/R) on (alpha, rho] : [%.6f, %.6f]\n",
-          region_lo, rho);
+    print(" overshoot region (Z_n > C/R) on [lambda_min, rho-delta] : "
+          "[%.6f, %.6f]\n", region_lo, xhi);
     printed_any = 1;
   }
   if(!printed_any)
-    print(" overshoot region (Z_n > C/R) on (alpha, rho] : none\n");
+    print(" overshoot region (Z_n > C/R) on [lambda_min, rho-delta] : none\n");
+}
+
+
+/* Equioscillation amplitude d_Z = max_{[alpha,beta]} (Z_n(x) - 1). This is
+independent of the window/margin test above: that test only guards
+invertibility and index correctness near rho - delta, while chiral symmetry
+breaking is governed by d_Z over the *whole* interval. The two are
+demonstrably different quantities - a run can pass the window test with
+sigma_min/am ~ 1 while still carrying a large residual mass from d_Z (see
+ZOLOTAREV_PATCH_3.md). Report-only: called once on the final selected alpha,
+not inside the delta_min scan. */
+static qpb_double
+equioscillation_amplitude(qpb_double alpha, qpb_double beta, int n)
+{
+  qpb_double *c = qpb_alloc(sizeof(qpb_double)*2*n);
+  qpb_double *b = qpb_alloc(sizeof(qpb_double)*n);
+  qpb_double norm, d_Z = -1.0;
+
+  build_Zolotarev_coeffs(alpha, beta, n, c, b, &norm);
+  for(int j=0; j<200; j++)
+  {
+    qpb_double x = alpha * pow(beta/alpha, (qpb_double)j/199.0);
+    qpb_double dev = Zolotarev_at(x, alpha, n, c, norm) - 1.0;
+    if (dev > d_Z) d_Z = dev;
+  }
+  free(c); free(b);
+  return d_Z;
 }
 
 
@@ -481,14 +531,17 @@ qpb_overlap_Zolotarev_init(void * gauge, qpb_clover_term clover, \
     }
 
     qpb_double max_eigv = sqrt(max_eigv_squared);
+    qpb_double lambda_min = sqrt(min_eigv_squared);   /* raw, pre-reduction */
+    qpb_double theta_window = 0.5;   /* window/margin gate; see select_delta_min -
+                                      unrelated to theta_gate below */
     qpb_double selected_delta_min = select_delta_min(min_eigv_squared, \
-                      max_eigv, rho, mass, delta, Zol_iters, 0.5);
+                      max_eigv, rho, mass, delta, Zol_iters, theta_window);
     if(selected_delta_min <= 0.0)
     {
       error(" !\n");
       error(" select_delta_min: no value of alpha (with delta_min <= 0.5) "
-            "keeps the margin sigma_min >= theta*am across the window "
-            "[rho - 1.1*delta, rho - 0.9*delta].\n");
+            "keeps the margin sigma_min >= theta_window*am across the "
+            "window [rho - 1.1*delta, rho - 0.9*delta].\n");
       error(" This Zolotarev order (n = %d) cannot safely represent am = "
             "%g at rho = %g with delta = %g; raise n.\n", Zol_iters, mass, \
                                                                     rho, delta);
@@ -548,8 +601,36 @@ qpb_overlap_Zolotarev_init(void * gauge, qpb_clover_term clover, \
                                                                 sigma_min/mass);
     print(" predicted kappa_CGNR                     = %.6e\n", kappa_CGNR);
 
-    print_overshoot_regions(ov_params.min_eigv, rho, C, R, Zolotarev_order, \
-                c, normalization_constant);
+    print_overshoot_regions(lambda_min, rho - delta, ov_params.min_eigv, C, R, \
+                Zolotarev_order, c, normalization_constant);
+
+    /* d_Z quality gate: the window/margin test above guards invertibility
+    and index correctness near rho - delta, but says nothing about chiral
+    symmetry breaking, which is governed by the equioscillation amplitude
+    d_Z over the whole interval. theta_gate is a decided constant (0.75),
+    not a per-run default, and a FAIL is a report, not an abort: low-order
+    runs are legitimate convergence-study points, just not physics
+    measurements (see ZOLOTAREV_PATCH_3.md). */
+    qpb_double d_Z = equioscillation_amplitude(ov_params.min_eigv, \
+                ov_params.max_eigv, Zolotarev_order);
+    qpb_double theta_gate = 0.75;
+    qpb_double d_Z_gate = theta_gate*mass /
+                      (rho - mass/2.0 + theta_gate*mass/2.0);
+    int chiral_quality_pass = (d_Z <= d_Z_gate);
+
+    print(" d_Z (equioscillation amplitude)          = %.6e\n", d_Z);
+    print(" d_Z gate  theta_gate*am/(rho-am/2+...)    = %.6e\n", d_Z_gate);
+    print(" chiral quality                           = %s\n", \
+                                    chiral_quality_pass ? "PASS" : "FAIL");
+    if(!chiral_quality_pass)
+      print(" WARNING: d_Z exceeds the gate. Index is protected by the "
+            "window\n"
+            "          guard, but chiral symmetry breaking is O(d_Z), "
+            "which may\n"
+            "          be comparable to or larger than am. Treat this run "
+            "as a\n"
+            "          convergence-study point, not a physics "
+            "measurement.\n");
 
     constant_term = normalization_constant / ov_params.min_eigv;
 
