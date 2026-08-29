@@ -204,6 +204,275 @@ qpb_extreme_eigenvalues_of_X_squared(qpb_double *min_eigv, \
   return i;
 }
 
+/* ---------------- RAYLEIGH QUOTIENT ITERATION REFINEMENT ---------------- */
+
+/* The smallest Ritz value returned by qpb_extreme_eigenvalues_of_X_squared is
+a variational *upper* bound on the smallest eigenvalue of X^2: Lanczos
+approaches it from above and can still be loose at the iteration counts used
+here. The routines below refine that estimate with a warm start by plain
+inverse iteration, followed by Rayleigh quotient iteration, which is cubically
+convergent once the vector is aligned with the target eigenvector. */
+
+/* Tunables. These are deliberately kept here rather than in the input file:
+the point of the refinement is its improvement-vs-cost curve, and these are
+the knobs that curve is traced with. */
+static const int RQI_n_warm = 10;  /* inverse iteration steps (warm start)  */
+static const int RQI_n_rqi = 10;   /* Rayleigh quotient iteration steps     */
+
+/* Solver tolerances follow the qpb convention throughout: 'epsilon' is
+compared against the *squared* relative residual, so 1e-6 below is a true
+relative residual of 1e-3. Stage 1 only needs an approximate direction.
+Stage 2's operator is near-singular by construction and is meant to be solved
+loosely, with the iteration cap rather than the tolerance doing the stopping. */
+static const qpb_double RQI_warm_epsilon = 1e-6;
+static const int RQI_warm_max_iters = 1000;
+static const qpb_double RQI_rqi_epsilon = 1e-4;
+static const int RQI_rqi_max_iters = 100;
+
+/* Stop when the Rayleigh quotient stops moving. Its accuracy is limited by
+rounding in the matrix-vector product to about eps_machine*||X^2||/lambda^2,
+i.e. ~1e-12 relative here, so this threshold sits just above the noise floor. */
+static const qpb_double RQI_lambda2_tolerance = 1e-11;
+
+/* Guard on p^dag A p in the shifted solve. (X^2 - lambda^2) always carries one
+non-positive eigenvalue, since the Rayleigh quotient is an upper bound on
+lambda_min^2 for *every* vector, so the operator is indefinite from the first
+Rayleigh quotient iteration step and not merely near convergence. CG can then
+either flip the sign of its step length (p^dag A p < 0) or break down outright
+(p^dag A p ~ 0); the single test below catches both. */
+static const qpb_double RQI_pAp_floor = 1e-14;
+
+
+INLINE void
+X_op(qpb_spinor_field y, qpb_spinor_field x)
+{
+  /* Implements X = g5*(D - rho). Note that ov_params.gauge_ptr already
+  carries the time boundary condition, applied once in
+  qpb_overlap_Zolotarev_init, so unlike qpb_congrad() nothing is done to the
+  gauge field here. */
+
+  void *dslash_args[4];
+
+  dslash_args[0] = ov_params.gauge_ptr;
+  dslash_args[1] = &ov_params.m_bare;
+  dslash_args[2] = &ov_params.clover;
+  dslash_args[3] = &ov_params.c_sw;
+
+  ov_params.g5_dslash_op(y, x, dslash_args);
+
+  return;
+}
+
+
+static int
+normalize_spinor(qpb_spinor_field v, qpb_spinor_field x)
+{
+  /* v <- x/||x||. Returns 0 if x has no usable norm, which happens if a
+  solve bailed out before it ever updated its solution vector. The test is
+  written so that a NaN norm fails it too. */
+
+  qpb_double norm;
+  qpb_spinor_xdotx(&norm, x);
+
+  if(!(norm > 0.))
+    return 0;
+
+  qpb_spinor_ax(v, (qpb_complex){1./sqrt(norm), 0.}, x);
+
+  return 1;
+}
+
+
+static int
+RQI_congrad(qpb_spinor_field x, qpb_spinor_field b, qpb_double shift, \
+            qpb_double epsilon, int max_iters, \
+            qpb_spinor_field p, qpb_spinor_field r, qpb_spinor_field y, \
+            qpb_spinor_field w, int *bailed)
+{
+  /* CG on (X^2 + shift), starting from x = 0. Returns the number of
+  iterations performed and sets '*bailed' if the p^dag A p guard stopped it.
+  Reaching 'max_iters' is not treated as an error: for the shifted systems of
+  stage 2 that is the expected exit, and the current iterate is still a
+  perfectly good direction. */
+
+  qpb_double res_norm, b_norm, p_norm;
+  qpb_complex_double alpha, omega, gamma, beta;
+  qpb_complex c_shift = (qpb_complex){shift, 0.};
+
+  *bailed = 0;
+
+  /* x = 0, and therefore r = b - (X^2 + shift) x = b */
+  qpb_spinor_field_set_zero(x);
+  qpb_spinor_xeqy(r, b);
+  qpb_spinor_xeqy(p, b);
+
+  qpb_spinor_xdotx(&b_norm, b);
+  res_norm = b_norm;
+  gamma = (qpb_complex_double){b_norm, 0.};
+
+  int iters;
+  for(iters=1; iters<max_iters; iters++)
+  {
+    if(res_norm / b_norm <= epsilon)
+      break;
+
+    /* w = (X^2 + shift) p */
+    X_op(y, p);
+    X_op(w, y);
+    qpb_spinor_axpy(w, c_shift, p, w);
+
+    qpb_spinor_xdoty(&omega, p, w);
+    qpb_spinor_xdotx(&p_norm, p);
+
+    if(omega.re <= RQI_pAp_floor*p_norm)
+    {
+      print("   RQI: CG step %d bailed on p^dag A p = %e\n", iters, omega.re);
+      *bailed = 1;
+      break;
+    }
+
+    alpha = CDEV(gamma, omega);
+    qpb_spinor_axpy(x, alpha, p, x);
+
+    alpha.re = -CDEVR(gamma, omega);
+    alpha.im = -CDEVI(gamma, omega);
+    qpb_spinor_axpy(r, alpha, w, r);
+
+    qpb_spinor_xdotx(&res_norm, r);
+
+    beta.re = res_norm / gamma.re;
+    beta.im = 0.;
+    qpb_spinor_axpy(p, beta, p, r);
+    gamma.re = res_norm;
+    gamma.im = 0.;
+  }
+
+  return iters;
+}
+
+
+static qpb_double
+refine_min_eigenvalue_RQI(qpb_double lambda2_in, int *n_warm_solves, \
+                          int *n_rqi_steps, int *n_cg_iters)
+{
+  /* Refine the smallest eigenvalue of X^2 by inverse iteration followed by
+  Rayleigh quotient iteration.
+    lambda2_in : Ritz estimate from qpb_extreme_eigenvalues_of_X_squared
+    returns    : refined lambda_min^2, never larger than lambda2_in
+  The cost is reported through the three counters. */
+
+  qpb_spinor_field p = qpb_spinor_field_init();
+  qpb_spinor_field r = qpb_spinor_field_init();
+  qpb_spinor_field y = qpb_spinor_field_init();
+  qpb_spinor_field w = qpb_spinor_field_init();
+  qpb_spinor_field v = qpb_spinor_field_init();
+  qpb_spinor_field z = qpb_spinor_field_init();
+  qpb_spinor_field t = qpb_spinor_field_init();
+
+  int bailed;
+
+  *n_warm_solves = 0;
+  *n_rqi_steps = 0;
+  *n_cg_iters = 0;
+
+  /* ------- stage 1: warm start by plain inverse iteration on X^2 -------
+  Unshifted, and deliberately so: applying (X^2)^{-1} already amplifies the
+  component belonging to the smallest eigenvalue, since that component is
+  divided by the smallest number, so no prior knowledge of lambda_min^2 is
+  needed. It also keeps the operator SPD, which shifting by the Ritz value
+  would not: Ritz values approach from above, so X^2 - lambda_Ritz^2 is
+  typically indefinite. Convergence here is only linear, but this stage only
+  has to produce a vector reasonably aligned with the target eigenvector. */
+
+  qpb_spinor_field_set_random(v);
+  if(!normalize_spinor(v, v))
+    {
+      /* Cannot happen in practice; the tracker below still guarantees that
+      the routine returns no worse than the Ritz value it was given. */
+      error(" RQI: random start vector has zero norm\n");
+    }
+
+  for(int k=0; k<RQI_n_warm; k++)
+  {
+    *n_cg_iters += RQI_congrad(z, v, 0., RQI_warm_epsilon, \
+                               RQI_warm_max_iters, p, r, y, w, &bailed);
+    *n_warm_solves += 1;
+
+    if(!normalize_spinor(v, z))
+    {
+      print("   RQI: warm-start solve %d produced no usable vector,"
+            " stopping the warm start\n", k+1);
+      break;
+    }
+  }
+
+  /* ---------------- stage 2: Rayleigh quotient iteration ----------------
+  The shift is updated from the current vector at every step; that adaptive
+  shift is what makes the convergence cubic rather than linear. The shifted
+  operator becomes increasingly near-singular as lambda^2 approaches the true
+  eigenvalue, which is the mechanism and not a failure: by that point v is
+  well aligned with the target eigenvector, so the direction being amplified
+  is exactly the wanted one. */
+
+  qpb_double lambda2 = lambda2_in;
+
+  /* Every Rayleigh quotient is an upper bound on lambda_min^2, so the
+  smallest one seen is the best estimate available. Seeding this with the
+  Ritz value means the returned number can never be worse than the one the
+  refinement started from, whatever the shifted solves do. */
+  qpb_double lambda2_best = lambda2_in;
+
+  print("   RQI: step  0  lambda^2 = %.16e  (Ritz)\n", lambda2);
+
+  for(int i=0; i<RQI_n_rqi; i++)
+  {
+    int iters = RQI_congrad(z, v, -lambda2, RQI_rqi_epsilon, \
+                            RQI_rqi_max_iters, p, r, y, w, &bailed);
+    *n_cg_iters += iters;
+    *n_rqi_steps += 1;
+
+    if(!normalize_spinor(v, z))
+    {
+      print("   RQI: step %2d produced no usable vector, stopping\n", i+1);
+      break;
+    }
+
+    /* Rayleigh quotient lambda^2 = (v, X^2 v)/(v, v) */
+    qpb_complex_double numerator;
+    qpb_double denominator;
+
+    X_op(y, v);
+    X_op(t, y);
+    qpb_spinor_xdoty(&numerator, v, t);
+    qpb_spinor_xdotx(&denominator, v);
+
+    qpb_double lambda2_new = numerator.re / denominator;
+
+    print("   RQI: step %2d  lambda^2 = %.16e  (CG iters = %4d%s)\n", \
+          i+1, lambda2_new, iters, bailed ? ", bailed" : "");
+
+    if(lambda2_new < lambda2_best)
+      lambda2_best = lambda2_new;
+
+    qpb_double change = fabs(lambda2_new - lambda2) / fabs(lambda2_new);
+    lambda2 = lambda2_new;
+
+    if(change < RQI_lambda2_tolerance)
+      break;
+  }
+
+  qpb_spinor_field_finalize(p);
+  qpb_spinor_field_finalize(r);
+  qpb_spinor_field_finalize(y);
+  qpb_spinor_field_finalize(w);
+  qpb_spinor_field_finalize(v);
+  qpb_spinor_field_finalize(z);
+  qpb_spinor_field_finalize(t);
+
+  return lambda2_best;
+}
+
+
 /* ------------------------ MATRIX-VECTOR FUNCTIONS ------------------------ */
 
 void
@@ -212,7 +481,8 @@ qpb_overlap_Zolotarev_init(void * gauge, qpb_clover_term clover, \
           qpb_double c_sw, qpb_double mass, qpb_double scaling_factor, \
           qpb_double ms_epsilon, int ms_max_iter, \
           qpb_double Lanczos_epsilon, int Lanczos_max_iters, \
-          qpb_double delta_max, qpb_double delta_min)
+          qpb_double delta_max, qpb_double delta_min, \
+          int RQI_refinement_mode)
 {
   if(ov_params.initialized != QPB_OVERLAP_INITIALIZED)
   {
@@ -290,6 +560,42 @@ qpb_overlap_Zolotarev_init(void * gauge, qpb_clover_term clover, \
                       &max_eigv_squared, Lanczos_epsilon, Lanczos_max_iters);
     print(" Total number of Lanczos algorithm iterations = %d\n", \
                                                                 Lanczos_iters);
+
+    /* The Ritz estimate of lambda_min^2 is refined here, before any of the
+    downstream modifications are applied, so that what is reported is directly
+    comparable to the Ritz value it replaces. */
+    if(RQI_refinement_mode != QPB_RQI_OFF)
+    {
+      int n_warm_solves, n_rqi_steps, n_cg_iters;
+
+      qpb_double t_RQI = qpb_stop_watch(0);
+      qpb_double refined_min_eigv_squared = refine_min_eigenvalue_RQI(\
+              min_eigv_squared, &n_warm_solves, &n_rqi_steps, &n_cg_iters);
+      t_RQI = qpb_stop_watch(t_RQI);
+
+      print(" lambda_min^2 (Ritz)                      = %.10e\n", \
+                                                            min_eigv_squared);
+      print(" lambda_min^2 (after RQI)                 = %.10e\n", \
+                                                    refined_min_eigv_squared);
+      print(" relative change                          = %.2e\n", \
+              fabs(refined_min_eigv_squared - min_eigv_squared)\
+                                              / fabs(min_eigv_squared));
+      print(" RQI: warm-start solves / RQI steps       = %d / %d\n", \
+                                                n_warm_solves, n_rqi_steps);
+      print(" RQI: total CG iterations                 = %d\n", n_cg_iters);
+      print(" RQI: Lanczos iterations, for comparison  = %d\n", Lanczos_iters);
+      print(" RQI: time                                = %g secs\n", t_RQI);
+
+      if(RQI_refinement_mode == QPB_RQI_APPLY)
+      {
+        min_eigv_squared = refined_min_eigv_squared;
+      }
+      else
+      {
+        print(" RQI: measure-only, the Ritz value is used downstream\n");
+      }
+    }
+
     /* If requested the extreme eigenvalues are modified accordingly */
     if (delta_min != 1.0)
       min_eigv_squared *= delta_min;

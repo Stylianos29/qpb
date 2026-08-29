@@ -298,6 +298,30 @@ main(int argc, char *argv[])
       exit(QPB_PARSER_ERROR);
     }
 
+  /* Rayleigh quotient iteration refinement of the Lanczos estimate of
+     lambda_min^2. Optional, and off by default so that input files that do
+     not mention it reproduce the historical behaviour. "measure" refines and
+     reports but leaves the Ritz value in use downstream. */
+  int RQI_refinement_mode = QPB_RQI_OFF;
+  {
+    char *ret = qpb_parse_optional("RQI refinement");
+    if(ret != NULL)
+      {
+	sscanf(ret, "%s", aux_string);
+	if(strcmp(aux_string, "no") == 0)
+	  RQI_refinement_mode = QPB_RQI_OFF;
+	else if(strcmp(aux_string, "measure") == 0)
+	  RQI_refinement_mode = QPB_RQI_MEASURE;
+	else if(strcmp(aux_string, "yes") == 0)
+	  RQI_refinement_mode = QPB_RQI_APPLY;
+	else
+	  {
+	    error("%s: option should be no, measure or yes\n", "RQI refinement");
+	    exit(QPB_PARSER_ERROR);
+	  }
+      }
+  }
+
   qpb_finalize_parser();
 
   /* initialize cartesian grid and index tables */
@@ -366,6 +390,9 @@ main(int argc, char *argv[])
   print(" Max Lanczos iters = %d\n", Lanczos_max_iters);
   print(" Min eigenvalue squared modification = %f\n", delta_min);
   print(" Max eigenvalue squared modification = %f\n", delta_max);
+  print(" RQI refinement = %s\n", \
+        RQI_refinement_mode == QPB_RQI_OFF ? "no" : \
+        RQI_refinement_mode == QPB_RQI_MEASURE ? "measure" : "yes");
 
   qpb_rng_init(seed);
   problem_params.timebc = timebc;
@@ -461,7 +488,8 @@ main(int argc, char *argv[])
   qpb_double t = qpb_stop_watch(0);
   qpb_overlap_Zolotarev_init(solver_arg_links, clover_term, Zol_order, \
                           rho, c_sw, mass, scaling_factor, epsilon, max_iters, \
-                          Lanczos_epsilon, Lanczos_max_iters, delta_max, delta_min);
+                          Lanczos_epsilon, Lanczos_max_iters, delta_max, \
+                          delta_min, RQI_refinement_mode);
   qpb_double t_overhead = qpb_stop_watch(t);
   print(" Total overhead time: %f sec\n", t_overhead);
 
