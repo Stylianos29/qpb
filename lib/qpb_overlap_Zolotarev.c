@@ -152,8 +152,9 @@ Zolotarev_at(qpb_double x, qpb_double min_eigv, int n,
 }
 
 
-/* Select the largest delta_min = alpha^2/min_eigv_sq_raw, capped at 0.5, such
-that the resulting Zolotarev approximation keeps a healthy margin
+/* Select the largest delta_min = alpha^2/min_eigv_sq_raw, capped at
+delta_min_cap, such that the resulting Zolotarev approximation keeps a
+healthy margin
 sigma_min = C - R*Z_n(x) >= theta_window*am across the window
 [rho - 1.1*lamR, rho - 0.9*lamR], where lamR is the leftmost real kernel mode
 (see ZOLOTAREV_DELTA_MIN_SPEC.md, ZOLOTAREV_DELTA_MIN_PATCH.md and
@@ -187,12 +188,22 @@ down by orders of magnitude at moderate n. Z_n is allowed to exceed 1 here
 (the equioscillation overshoot is normal for this normalization); the
 caller reports where it does via the overshoot-region diagnostic instead.
 
-The delta_min <= 0.5 cap preserves the *original*, resonance-independent
-reason for shrinking below the raw Lanczos estimate: Lanczos converges to
-lambda_min from above, so the true spectrum can extend below alpha, and 0.5
-is the conventional safety margin for that. Without the cap, the tightened
-margin test above would return exactly 1.0 (no reduction at all) whenever
-the resonance itself isn't a problem at the requested n.
+The delta_min <= delta_min_cap cap preserves the *original*,
+resonance-independent reason for shrinking below the raw Lanczos estimate:
+Lanczos converges to lambda_min from above, so the raw estimate can be an
+overestimate and the true spectrum can extend below it. Without a cap the
+margin test above would return exactly 1.0 - alpha = lambda_min, no margin
+at all - whenever the resonance itself isn't a problem at the requested n.
+
+The cap is 0.9, raised from the earlier 0.5 (see ZOLOTAREV_PATCH_4.md).
+Both guards - the window margin and d_Z - improve monotonically with alpha,
+so an over-tight cap costs accuracy even where it is not blocking, and at
+n = 3, am = 0.01 it put alpha_max entirely below the feasible region on
+some configurations, so that no trial alpha could pass at all and the run
+aborted where a safe choice existed just above the cap. It is deliberately
+not 1.0, which would leave no margin against the Lanczos overestimate
+above. If Rayleigh-quotient-iteration refinement of lambda_min is
+implemented later, the cap can be revisited - but not before.
 
 Do not replace the full ascending scan with a bisection or a "first pass,
 scanning downward" search: for n >= 2, Z_n(rho - delta) is not monotonic in
@@ -201,10 +212,10 @@ largest passing alpha is robust to arbitrary lobe structure. */
 static qpb_double
 select_delta_min(qpb_double min_eigv_sq_raw, qpb_double max_eigv,
                  qpb_double rho, qpb_double am, qpb_double lamR,
-                 int n, qpb_double theta_window)
+                 int n, qpb_double theta_window, qpb_double delta_min_cap)
 {
   qpb_double lmin = sqrt(min_eigv_sq_raw);
-  qpb_double alpha_max = lmin * sqrt(0.5);        /* delta_min <= 0.5 */
+  qpb_double alpha_max = lmin * sqrt(delta_min_cap);
   qpb_double C = rho + 0.5*am, R = rho - 0.5*am;
   qpb_double xlo = rho - 1.1*lamR, xhi = rho - 0.9*lamR;
   qpb_double *c = qpb_alloc(sizeof(qpb_double)*2*n);
@@ -228,6 +239,39 @@ select_delta_min(qpb_double min_eigv_sq_raw, qpb_double max_eigv,
 
   free(c); free(b);
   return (best > 0.0) ? (best*best)/min_eigv_sq_raw : -1.0;
+}
+
+
+/* Minimum of the signed margin sigma_min(x) = C - R*Z_n(x) over [xlo, xhi],
+with *x_at receiving where it is attained. Called on the WIDE range
+[lambda_min, rho - delta] as a final check on the alpha that
+select_delta_min actually returned, and it is not redundant with the
+selector's own acceptance test: that test deliberately scans only the narrow
+window around the resonance point (see select_delta_min), so a genuine
+overshoot further out survives selection. Nor is it redundant with the
+single-point sigma_min(rho - delta) diagnostic, which can be comfortably
+positive while the minimum over the range is negative - a negative value
+here means Z_n > C/R somewhere a real kernel mode can sit, i.e. a flipped
+index, and the caller aborts on it (see ZOLOTAREV_PATCH_4.md). */
+static qpb_double
+window_min_sigma(qpb_double xlo, qpb_double xhi, qpb_double alpha,
+                 qpb_double C, qpb_double R, int n, qpb_double *c,
+                 qpb_double norm, qpb_double *x_at)
+{
+  const int npts = 500;
+  qpb_double sigma_min_over_window = 0.0;
+
+  for(int i=0; i<npts; i++)
+  {
+    qpb_double x = xlo + (xhi - xlo)*i/(npts - 1.0);
+    qpb_double sigma = C - R*Zolotarev_at(x, alpha, n, c, norm);
+    if(i == 0 || sigma < sigma_min_over_window)
+    {
+      sigma_min_over_window = sigma;
+      *x_at = x;
+    }
+  }
+  return sigma_min_over_window;
 }
 
 
@@ -534,14 +578,17 @@ qpb_overlap_Zolotarev_init(void * gauge, qpb_clover_term clover, \
     qpb_double lambda_min = sqrt(min_eigv_squared);   /* raw, pre-reduction */
     qpb_double theta_window = 0.5;   /* window/margin gate; see select_delta_min -
                                       unrelated to theta_gate below */
+    qpb_double delta_min_cap = 0.9;  /* ceiling on delta_min; see
+                                      select_delta_min for why 0.9, not 1.0 */
     qpb_double selected_delta_min = select_delta_min(min_eigv_squared, \
-                      max_eigv, rho, mass, delta, Zol_iters, theta_window);
+                      max_eigv, rho, mass, delta, Zol_iters, theta_window, \
+                      delta_min_cap);
     if(selected_delta_min <= 0.0)
     {
       error(" !\n");
-      error(" select_delta_min: no value of alpha (with delta_min <= 0.5) "
+      error(" select_delta_min: no value of alpha (with delta_min <= %g) "
             "keeps the margin sigma_min >= theta_window*am across the "
-            "window [rho - 1.1*delta, rho - 0.9*delta].\n");
+            "window [rho - 1.1*delta, rho - 0.9*delta].\n", delta_min_cap);
       error(" This Zolotarev order (n = %d) cannot safely represent am = "
             "%g at rho = %g with delta = %g; raise n.\n", Zol_iters, mass, \
                                                                     rho, delta);
@@ -601,8 +648,47 @@ qpb_overlap_Zolotarev_init(void * gauge, qpb_clover_term clover, \
                                                                 sigma_min/mass);
     print(" predicted kappa_CGNR                     = %.6e\n", kappa_CGNR);
 
+    /* Final guard on the alpha that was actually selected, over the whole
+    range a real kernel mode can occupy. The single-point sigma_min above is
+    evaluated only at x = rho - delta, and a single point is not sufficient:
+    a run can show a healthy margin there while Z_n overshoots C/R elsewhere
+    in the range, which flips the index. Unlike the d_Z gate below, this one
+    aborts - an index-flipped operator is not a low-quality measurement, it
+    is the wrong operator. */
+    qpb_double x_at_window_min;
+    qpb_double window_sigma_min = window_min_sigma(lambda_min, rho - delta, \
+                ov_params.min_eigv, C, R, Zolotarev_order, c, \
+                normalization_constant, &x_at_window_min);
+
+    print(" min sigma_min over [lam_min, rho-delta]  = %.6e (at x = %.6f, "
+          "theta_window*am = %.6e)\n", window_sigma_min, x_at_window_min, \
+                                                            theta_window*mass);
+
     print_overshoot_regions(lambda_min, rho - delta, ov_params.min_eigv, C, R, \
                 Zolotarev_order, c, normalization_constant);
+
+    if(window_sigma_min <= 0.0)
+    {
+      error(" !\n");
+      error(" The selected approximation has Z_n > C/R at x = %g, inside "
+            "[lambda_min, rho - delta] = [%g, %g]: a real kernel mode there "
+            "would give D_ov a flipped index.\n", x_at_window_min, \
+                                                        lambda_min, rho - delta);
+      error(" This Zolotarev order (n = %d) cannot safely represent am = %g "
+            "at rho = %g with delta = %g; raise n.\n", Zolotarev_order, mass, \
+                                                                    rho, delta);
+      error(" !\n");
+      exit(QPB_PARAMETERS_ERROR);
+    }
+    else if(window_sigma_min < theta_window*mass)
+    {
+      print(" WARNING: the margin over [lambda_min, rho - delta] is below "
+            "theta_window*am.\n"
+            "          The index is correct, but D_ov is closer to singular "
+            "away from\n"
+            "          rho - delta than the selector's own window test "
+            "guarantees at it.\n");
+    }
 
     /* d_Z quality gate: the window/margin test above guards invertibility
     and index correctness near rho - delta, but says nothing about chiral
