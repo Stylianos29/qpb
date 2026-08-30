@@ -406,6 +406,27 @@ refine_min_eigenvalue_RQI(qpb_double lambda2_in, int *n_warm_solves, \
     }
   }
 
+  /* Stage 1 runs on the unshifted operator, so its own Rayleigh quotient
+  carries no indefiniteness risk to evaluate and is directly comparable to
+  the Ritz value. In practice it is often *better* than a loosely-converged
+  Lanczos estimate: 10 solves at a decent tolerance can outperform a Lanczos
+  run cut short after a similar number of iterations. Computing it costs one
+  more matrix-vector pair on vectors already in hand, and folding it into the
+  running best means a weak Ritz value can never mask a gain stage 1 already
+  paid for. */
+  qpb_complex_double warm_numerator;
+  qpb_double warm_denominator;
+
+  X_op(y, v);
+  X_op(t, y);
+  qpb_spinor_xdoty(&warm_numerator, v, t);
+  qpb_spinor_xdotx(&warm_denominator, v);
+
+  qpb_double lambda2_warm = warm_numerator.re / warm_denominator;
+
+  print("   RQI: warm start  lambda^2 = %.16e  (Ritz was %.16e)\n", \
+        lambda2_warm, lambda2_in);
+
   /* ---------------- stage 2: Rayleigh quotient iteration ----------------
   The shift is updated from the current vector at every step; that adaptive
   shift is what makes the convergence cubic rather than linear. The shifted
@@ -414,15 +435,22 @@ refine_min_eigenvalue_RQI(qpb_double lambda2_in, int *n_warm_solves, \
   well aligned with the target eigenvector, so the direction being amplified
   is exactly the wanted one. */
 
-  qpb_double lambda2 = lambda2_in;
-
   /* Every Rayleigh quotient is an upper bound on lambda_min^2, so the
   smallest one seen is the best estimate available. Seeding this with the
   Ritz value means the returned number can never be worse than the one the
-  refinement started from, whatever the shifted solves do. */
+  refinement started from, whatever the shifted solves do; folding in the
+  warm-start value below extends that guarantee to stage 1 as well. */
   qpb_double lambda2_best = lambda2_in;
+  if(lambda2_warm < lambda2_best)
+    lambda2_best = lambda2_warm;
 
-  print("   RQI: step  0  lambda^2 = %.16e  (Ritz)\n", lambda2);
+  /* Start stage 2 from whichever of the two is already tighter, so the
+  first shifted solve is never handed a shift worse than what stage 1 found
+  for free: that gap is exactly what previously showed up as an immediate,
+  uninformative p^dag A p < 0 bailout. */
+  qpb_double lambda2 = lambda2_best;
+
+  print("   RQI: step  0  lambda^2 = %.16e  (starting shift)\n", lambda2);
 
   for(int i=0; i<RQI_n_rqi; i++)
   {
