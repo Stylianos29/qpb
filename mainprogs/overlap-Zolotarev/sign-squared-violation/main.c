@@ -302,7 +302,7 @@ main(int argc, char *argv[])
      lambda_min^2. Optional, and off by default so that input files that do
      not mention it reproduce the historical behaviour. "measure" refines and
      reports but leaves the Ritz value in use downstream. */
-  int RQI_refinement_mode = QPB_RQI_OFF;
+  int RQI_refinement_mode = QPB_RQI_MEASURE;
   {
     char *ret = qpb_parse_optional("RQI refinement");
     if(ret != NULL)
