@@ -198,6 +198,13 @@ qpb_extreme_eigenvalues_of_X_squared(qpb_double *min_eigv, \
     lambda0 = lambda;
   }
 
+  /* eig[] comes back sorted ascending from tridiag_eigenv, so eig[1] is the
+  second Ritz value and is free here. The gap between the two governs how
+  fast inverse iteration converges, so having it measured per configuration
+  beats inferring it after the fact from observed convergence rates. */
+  print(" lambda_min^2 (Ritz), 2nd Ritz value = %.10e, %.10e\n", \
+                                                            eig[0], eig[1]);
+
   *min_eigv = (qpb_double) eig[0];
   *max_eigv = (qpb_double) eig[i-1];
 
@@ -219,30 +226,40 @@ the knobs that curve is traced with. */
 static const int RQI_n_warm = 3;   /* inverse iteration steps (warm start)  */
 static const int RQI_n_rqi = 10;   /* Rayleigh quotient iteration steps     */
 
-/* Stage 2 shifts *below* the current estimate rather than exactly at it:
-sigma = (1 - RQI_shift_backoff)*lambda^2. Shifting exactly at lambda^2 makes
-p^dag A p = RQ(v) - sigma vanish identically at CG's first iteration, an
-exact algebraic cancellation rather than roundoff, which is what previously
-killed every shifted solve after at most one step. Backing off keeps
-X^2 - sigma positive definite whenever the backoff exceeds the current
-relative error, so plain CG is rigorously valid; convergence degrades from
-cubic to fast-linear, which is still far better than stage 1 and, unlike
-cubic-in-principle, actually survives more than one step. The pAp guard
-below stays as a backstop for the steps where the error still exceeds the
-backoff. */
-static const qpb_double RQI_shift_backoff = 1e-2;
+/* Stage 2 shifts *below* the current estimate rather than exactly at it.
+Shifting exactly at lambda^2 makes p^dag A p = RQ(v) - sigma vanish
+identically at CG's first iteration, an exact algebraic cancellation rather
+than roundoff, which is what killed every shifted solve after at most one
+step. How far below is set by the residual of the current Rayleigh quotient
+rather than by a fixed fraction: an eigenvalue of X^2 is guaranteed to lie
+in [theta - ||r||, theta + ||r||], so sigma = theta - RQI_shift_safety*||r||
+sits below lambda_min^2 as long as the safety factor exceeds 1, and it does
+so self-calibrating - backing off hard while v is a poor eigenvector
+estimate and tightening automatically as v improves. A fixed fraction
+cannot do both: it is unsafe when the relative error is larger than it and
+needlessly conservative once the estimate is good. The pAp guard below
+stays as the backstop, since this is a good estimate rather than a proof. */
+static const qpb_double RQI_shift_safety = 1.5;
 
 /* Solver tolerances follow the qpb convention throughout: 'epsilon' is
-compared against the *squared* relative residual, so 1e-3 below is a true
-relative residual of ~3e-2. Stage 1 now only has to get the vector aligned
-enough for stage 2 to take over, not converged, since stage 2 can take
-several working steps. Stage 2's operator is near-singular by construction
-and is meant to be solved loosely, with the iteration cap rather than the
-tolerance doing the stopping. */
-static const qpb_double RQI_warm_epsilon = 1e-3;
+compared against the *squared* relative residual, so 1e-6 below is a true
+relative residual of 1e-3. Stage 1 only needs an approximate direction, but
+not an arbitrarily rough one: loosening this to 1e-3 alongside the n_warm
+cut regressed the warm-start Rayleigh quotient from better-than-Ritz to
+several times worse than the true eigenvalue, so it stays tight and the
+step count carries the cost reduction instead. */
+static const qpb_double RQI_warm_epsilon = 1e-6;
 static const int RQI_warm_max_iters = 1000;
+
+/* Stage 2's operator is near-singular by construction and is meant to be
+solved loosely, with the iteration cap rather than the tolerance doing the
+stopping. The first step is the exception: X^2 - sigma is at its worst
+conditioned there, roughly lambda_max^2/(theta - sigma), and needs a few
+hundred iterations to resolve. Later steps converge in tens or fewer once v
+is aligned, so only the first gets the larger budget. */
 static const qpb_double RQI_rqi_epsilon = 1e-4;
 static const int RQI_rqi_max_iters = 100;
+static const int RQI_rqi_first_max_iters = 500;
 
 /* Stop when the Rayleigh quotient stops moving. Its accuracy is limited by
 rounding in the matrix-vector product to about eps_machine*||X^2||/lambda^2,
@@ -300,15 +317,15 @@ normalize_spinor(qpb_spinor_field v, qpb_spinor_field x)
 
 static int
 RQI_congrad(qpb_spinor_field x, qpb_spinor_field b, qpb_double shift, \
-            qpb_double epsilon, int max_iters, \
+            qpb_double x0_scale, qpb_double epsilon, int max_iters, \
             qpb_spinor_field p, qpb_spinor_field r, qpb_spinor_field y, \
             qpb_spinor_field w, int *bailed)
 {
-  /* CG on (X^2 + shift), starting from x = 0. Returns the number of
-  iterations performed and sets '*bailed' if the p^dag A p guard stopped it.
-  Reaching 'max_iters' is not treated as an error: for the shifted systems of
-  stage 2 that is the expected exit, and the current iterate is still a
-  perfectly good direction. */
+  /* CG on (X^2 + shift), starting from x = x0_scale*b (pass 0 to start from
+  zero). Returns the number of iterations performed and sets '*bailed' if the
+  p^dag A p guard stopped it. Reaching 'max_iters' is not treated as an
+  error: for the shifted systems of stage 2 that is the expected exit, and
+  the current iterate is still a perfectly good direction. */
 
   qpb_double res_norm, b_norm, p_norm;
   qpb_complex_double alpha, omega, gamma, beta;
@@ -316,14 +333,37 @@ RQI_congrad(qpb_spinor_field x, qpb_spinor_field b, qpb_double shift, \
 
   *bailed = 0;
 
-  /* x = 0, and therefore r = b - (X^2 + shift) x = b */
-  qpb_spinor_field_set_zero(x);
-  qpb_spinor_xeqy(r, b);
-  qpb_spinor_xeqy(p, b);
-
   qpb_spinor_xdotx(&b_norm, b);
-  res_norm = b_norm;
-  gamma = (qpb_complex_double){b_norm, 0.};
+
+  if(x0_scale != 0.)
+  {
+    /* Stage 2 calls this with b = v and a shift sitting just below
+    theta = RQ(v), where the dominant-eigenvector approximation
+    (X^2 - sigma)^{-1} v ~ v/(theta - sigma) is already close to the answer.
+    Starting there rather than at zero costs one operator application and
+    saves most of the iterations. */
+    qpb_spinor_ax(x, (qpb_complex){x0_scale, 0.}, b);
+    X_op(y, x);
+    X_op(w, y);
+    qpb_spinor_axpy(w, c_shift, x, w);
+    qpb_spinor_xmy(r, b, w);
+  }
+  else
+  {
+    /* x = 0, and therefore r = b - (X^2 + shift) x = b */
+    qpb_spinor_field_set_zero(x);
+    qpb_spinor_xeqy(r, b);
+  }
+
+  qpb_spinor_xeqy(p, r);
+
+  /* Seeded from ||r0||^2, not ||b||^2: those coincide only for x0 = 0, and
+  with a good starting guess ||r0|| is far smaller, so seeding from b_norm
+  would hide an already-converged solve from the test below. The test itself
+  keeps b_norm as its denominator, the relative-residual-to-RHS convention
+  used throughout qpb. */
+  qpb_spinor_xdotx(&res_norm, r);
+  gamma = (qpb_complex_double){res_norm, 0.};
 
   int iters;
   for(iters=1; iters<max_iters; iters++)
@@ -367,6 +407,35 @@ RQI_congrad(qpb_spinor_field x, qpb_spinor_field b, qpb_double shift, \
 
 
 static qpb_double
+rayleigh_quotient(qpb_spinor_field v, qpb_double *r_norm, \
+                  qpb_spinor_field y, qpb_spinor_field t, \
+                  qpb_spinor_field rq_res)
+{
+  /* theta = (v, X^2 v)/(v, v), together with the residual norm
+  ||X^2 v - theta v||. The residual comes free from the same X^2 v the
+  quotient needs, and it is what makes the stage 2 shift self-calibrating:
+  an eigenvalue of X^2 lies in [theta - ||r||, theta + ||r||], so ||r|| is
+  both the error bar on theta and the distance the shift has to back off. */
+
+  qpb_complex_double numerator;
+  qpb_double denominator, r_norm_squared;
+
+  X_op(y, v);
+  X_op(t, y);
+  qpb_spinor_xdoty(&numerator, v, t);
+  qpb_spinor_xdotx(&denominator, v);
+
+  qpb_double theta = numerator.re / denominator;
+
+  qpb_spinor_axpy(rq_res, (qpb_complex){-theta, 0.}, v, t);
+  qpb_spinor_xdotx(&r_norm_squared, rq_res);
+  *r_norm = sqrt(r_norm_squared);
+
+  return theta;
+}
+
+
+static qpb_double
 refine_min_eigenvalue_RQI(qpb_double lambda2_in, int *n_warm_solves, \
                           int *n_rqi_steps, int *n_cg_iters)
 {
@@ -383,6 +452,7 @@ refine_min_eigenvalue_RQI(qpb_double lambda2_in, int *n_warm_solves, \
   qpb_spinor_field v = qpb_spinor_field_init();
   qpb_spinor_field z = qpb_spinor_field_init();
   qpb_spinor_field t = qpb_spinor_field_init();
+  qpb_spinor_field rq_res = qpb_spinor_field_init();
 
   int bailed;
 
@@ -409,7 +479,7 @@ refine_min_eigenvalue_RQI(qpb_double lambda2_in, int *n_warm_solves, \
 
   for(int k=0; k<RQI_n_warm; k++)
   {
-    *n_cg_iters += RQI_congrad(z, v, 0., RQI_warm_epsilon, \
+    *n_cg_iters += RQI_congrad(z, v, 0., 0., RQI_warm_epsilon, \
                                RQI_warm_max_iters, p, r, y, w, &bailed);
     *n_warm_solves += 1;
 
@@ -424,23 +494,16 @@ refine_min_eigenvalue_RQI(qpb_double lambda2_in, int *n_warm_solves, \
   /* Stage 1 runs on the unshifted operator, so its own Rayleigh quotient
   carries no indefiniteness risk to evaluate and is directly comparable to
   the Ritz value. In practice it is often *better* than a loosely-converged
-  Lanczos estimate: 10 solves at a decent tolerance can outperform a Lanczos
-  run cut short after a similar number of iterations. Computing it costs one
-  more matrix-vector pair on vectors already in hand, and folding it into the
-  running best means a weak Ritz value can never mask a gain stage 1 already
-  paid for. */
-  qpb_complex_double warm_numerator;
-  qpb_double warm_denominator;
+  Lanczos estimate: a few solves at a tight tolerance can outperform a
+  Lanczos run cut short after a similar number of iterations. Computing it
+  costs one more matrix-vector pair on vectors already in hand, and folding
+  it into the running best means a weak Ritz value can never mask a gain
+  stage 1 already paid for. */
+  qpb_double r_norm;
+  qpb_double theta = rayleigh_quotient(v, &r_norm, y, t, rq_res);
 
-  X_op(y, v);
-  X_op(t, y);
-  qpb_spinor_xdoty(&warm_numerator, v, t);
-  qpb_spinor_xdotx(&warm_denominator, v);
-
-  qpb_double lambda2_warm = warm_numerator.re / warm_denominator;
-
-  print("   RQI: warm start  lambda^2 = %.16e  (Ritz was %.16e)\n", \
-        lambda2_warm, lambda2_in);
+  print("   RQI: warm start  lambda^2 = %.16e  (||r|| = %.4e, "
+        "Ritz was %.16e)\n", theta, r_norm, lambda2_in);
 
   /* ---------------- stage 2: Rayleigh quotient iteration ----------------
   The shift is re-derived from the current vector at every step, but backed
@@ -457,23 +520,32 @@ refine_min_eigenvalue_RQI(qpb_double lambda2_in, int *n_warm_solves, \
   refinement started from, whatever the shifted solves do; folding in the
   warm-start value below extends that guarantee to stage 1 as well. */
   qpb_double lambda2_best = lambda2_in;
-  if(lambda2_warm < lambda2_best)
-    lambda2_best = lambda2_warm;
+  if(theta < lambda2_best)
+    lambda2_best = theta;
 
-  /* Start stage 2 from whichever of the two is already tighter, so the
-  first shifted solve is never handed a shift worse than what stage 1 found
-  for free: that gap is exactly what previously showed up as an immediate,
-  uninformative p^dag A p < 0 bailout. */
-  qpb_double lambda2 = lambda2_best;
-
-  print("   RQI: step  0  lambda^2 = %.16e  (starting shift)\n", lambda2);
+  print("   RQI: step  0  lambda^2 = %.16e  (starting estimate)\n", theta);
 
   for(int i=0; i<RQI_n_rqi; i++)
   {
-    qpb_double sigma = (1. - RQI_shift_backoff)*lambda2;
+    if(!(r_norm > 0.))
+    {
+      print("   RQI: step %2d residual vanished, v is an exact eigenvector,"
+            " stopping\n", i+1);
+      break;
+    }
 
-    int iters = RQI_congrad(z, v, -sigma, RQI_rqi_epsilon, \
-                            RQI_rqi_max_iters, p, r, y, w, &bailed);
+    /* theta - sigma = RQI_shift_safety*||r|| by construction, so the first
+    CG search direction has p^dag A p = RQ(v) - sigma > 0 with room to
+    spare, and x0 below is the dominant-eigenvector solution v/(theta -
+    sigma) of the very system being solved. */
+    qpb_double sigma = theta - RQI_shift_safety*r_norm;
+    qpb_double x0_scale = 1./(theta - sigma);
+
+    int step_max_iters = (i == 0) ? RQI_rqi_first_max_iters \
+                                  : RQI_rqi_max_iters;
+
+    int iters = RQI_congrad(z, v, -sigma, x0_scale, RQI_rqi_epsilon, \
+                            step_max_iters, p, r, y, w, &bailed);
     *n_cg_iters += iters;
     *n_rqi_steps += 1;
 
@@ -481,7 +553,7 @@ refine_min_eigenvalue_RQI(qpb_double lambda2_in, int *n_warm_solves, \
     was generous enough: 'cap' and 'converged' both mean CG stayed valid
     throughout, 'bailed' means the guard still had to catch it. */
     const char *exit_reason = bailed ? "bailed" : \
-                              (iters >= RQI_rqi_max_iters ? "cap" : "converged");
+                              (iters >= step_max_iters ? "cap" : "converged");
 
     if(!normalize_spinor(v, z))
     {
@@ -490,26 +562,17 @@ refine_min_eigenvalue_RQI(qpb_double lambda2_in, int *n_warm_solves, \
       break;
     }
 
-    /* Rayleigh quotient lambda^2 = (v, X^2 v)/(v, v) */
-    qpb_complex_double numerator;
-    qpb_double denominator;
+    qpb_double theta_new = rayleigh_quotient(v, &r_norm, y, t, rq_res);
 
-    X_op(y, v);
-    X_op(t, y);
-    qpb_spinor_xdoty(&numerator, v, t);
-    qpb_spinor_xdotx(&denominator, v);
+    print("   RQI: step %2d  lambda^2 = %.16e  (sigma = %.10e, "
+          "||r|| = %.4e, CG iters = %4d, %s)\n", \
+          i+1, theta_new, sigma, r_norm, iters, exit_reason);
 
-    qpb_double lambda2_new = numerator.re / denominator;
+    if(theta_new < lambda2_best)
+      lambda2_best = theta_new;
 
-    print("   RQI: step %2d  lambda^2 = %.16e  "
-          "(sigma = %.10e, CG iters = %4d, %s)\n", \
-          i+1, lambda2_new, sigma, iters, exit_reason);
-
-    if(lambda2_new < lambda2_best)
-      lambda2_best = lambda2_new;
-
-    qpb_double change = fabs(lambda2_new - lambda2) / fabs(lambda2_new);
-    lambda2 = lambda2_new;
+    qpb_double change = fabs(theta_new - theta) / fabs(theta_new);
+    theta = theta_new;
 
     if(change < RQI_lambda2_tolerance)
       break;
@@ -522,6 +585,7 @@ refine_min_eigenvalue_RQI(qpb_double lambda2_in, int *n_warm_solves, \
   qpb_spinor_field_finalize(v);
   qpb_spinor_field_finalize(z);
   qpb_spinor_field_finalize(t);
+  qpb_spinor_field_finalize(rq_res);
 
   return lambda2_best;
 }
