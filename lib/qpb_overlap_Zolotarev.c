@@ -216,15 +216,30 @@ convergent once the vector is aligned with the target eigenvector. */
 /* Tunables. These are deliberately kept here rather than in the input file:
 the point of the refinement is its improvement-vs-cost curve, and these are
 the knobs that curve is traced with. */
-static const int RQI_n_warm = 10;  /* inverse iteration steps (warm start)  */
+static const int RQI_n_warm = 3;   /* inverse iteration steps (warm start)  */
 static const int RQI_n_rqi = 10;   /* Rayleigh quotient iteration steps     */
 
+/* Stage 2 shifts *below* the current estimate rather than exactly at it:
+sigma = (1 - RQI_shift_backoff)*lambda^2. Shifting exactly at lambda^2 makes
+p^dag A p = RQ(v) - sigma vanish identically at CG's first iteration, an
+exact algebraic cancellation rather than roundoff, which is what previously
+killed every shifted solve after at most one step. Backing off keeps
+X^2 - sigma positive definite whenever the backoff exceeds the current
+relative error, so plain CG is rigorously valid; convergence degrades from
+cubic to fast-linear, which is still far better than stage 1 and, unlike
+cubic-in-principle, actually survives more than one step. The pAp guard
+below stays as a backstop for the steps where the error still exceeds the
+backoff. */
+static const qpb_double RQI_shift_backoff = 1e-2;
+
 /* Solver tolerances follow the qpb convention throughout: 'epsilon' is
-compared against the *squared* relative residual, so 1e-6 below is a true
-relative residual of 1e-3. Stage 1 only needs an approximate direction.
-Stage 2's operator is near-singular by construction and is meant to be solved
-loosely, with the iteration cap rather than the tolerance doing the stopping. */
-static const qpb_double RQI_warm_epsilon = 1e-6;
+compared against the *squared* relative residual, so 1e-3 below is a true
+relative residual of ~3e-2. Stage 1 now only has to get the vector aligned
+enough for stage 2 to take over, not converged, since stage 2 can take
+several working steps. Stage 2's operator is near-singular by construction
+and is meant to be solved loosely, with the iteration cap rather than the
+tolerance doing the stopping. */
+static const qpb_double RQI_warm_epsilon = 1e-3;
 static const int RQI_warm_max_iters = 1000;
 static const qpb_double RQI_rqi_epsilon = 1e-4;
 static const int RQI_rqi_max_iters = 100;
@@ -428,12 +443,13 @@ refine_min_eigenvalue_RQI(qpb_double lambda2_in, int *n_warm_solves, \
         lambda2_warm, lambda2_in);
 
   /* ---------------- stage 2: Rayleigh quotient iteration ----------------
-  The shift is updated from the current vector at every step; that adaptive
-  shift is what makes the convergence cubic rather than linear. The shifted
-  operator becomes increasingly near-singular as lambda^2 approaches the true
-  eigenvalue, which is the mechanism and not a failure: by that point v is
-  well aligned with the target eigenvector, so the direction being amplified
-  is exactly the wanted one. */
+  The shift is re-derived from the current vector at every step, but backed
+  off below it rather than placed exactly on it: shifting exactly at the
+  Rayleigh quotient is what textbook RQI does to earn cubic convergence, and
+  it is also precisely what makes the first CG search direction satisfy
+  p^dag A p = 0 identically, so plain CG cannot take a single step. Backing
+  off trades the cubic rate for a fast-linear one that CG can actually
+  deliver. */
 
   /* Every Rayleigh quotient is an upper bound on lambda_min^2, so the
   smallest one seen is the best estimate available. Seeding this with the
@@ -454,14 +470,23 @@ refine_min_eigenvalue_RQI(qpb_double lambda2_in, int *n_warm_solves, \
 
   for(int i=0; i<RQI_n_rqi; i++)
   {
-    int iters = RQI_congrad(z, v, -lambda2, RQI_rqi_epsilon, \
+    qpb_double sigma = (1. - RQI_shift_backoff)*lambda2;
+
+    int iters = RQI_congrad(z, v, -sigma, RQI_rqi_epsilon, \
                             RQI_rqi_max_iters, p, r, y, w, &bailed);
     *n_cg_iters += iters;
     *n_rqi_steps += 1;
 
+    /* How the solve ended is the diagnostic that says whether the backoff
+    was generous enough: 'cap' and 'converged' both mean CG stayed valid
+    throughout, 'bailed' means the guard still had to catch it. */
+    const char *exit_reason = bailed ? "bailed" : \
+                              (iters >= RQI_rqi_max_iters ? "cap" : "converged");
+
     if(!normalize_spinor(v, z))
     {
-      print("   RQI: step %2d produced no usable vector, stopping\n", i+1);
+      print("   RQI: step %2d produced no usable vector (%s), stopping\n", \
+            i+1, exit_reason);
       break;
     }
 
@@ -476,8 +501,9 @@ refine_min_eigenvalue_RQI(qpb_double lambda2_in, int *n_warm_solves, \
 
     qpb_double lambda2_new = numerator.re / denominator;
 
-    print("   RQI: step %2d  lambda^2 = %.16e  (CG iters = %4d%s)\n", \
-          i+1, lambda2_new, iters, bailed ? ", bailed" : "");
+    print("   RQI: step %2d  lambda^2 = %.16e  "
+          "(sigma = %.10e, CG iters = %4d, %s)\n", \
+          i+1, lambda2_new, sigma, iters, exit_reason);
 
     if(lambda2_new < lambda2_best)
       lambda2_best = lambda2_new;
