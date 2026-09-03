@@ -14,6 +14,7 @@
 #include <qpb_kl_defs.h>
 #include <qpb_mscongrad.h>
 #include <math.h>
+#include <stdlib.h>
 
 #include <qpb.h>            /* pulls in qpb_lanczos.h */
 #include <gsl/gsl_vector.h>
@@ -94,17 +95,29 @@ tridiag_eigenv(qpb_double *eig, qpb_double *a, qpb_double *b, int n)
 
 int
 qpb_extreme_eigenvalues_of_X_squared(qpb_double *min_eigv, \
-  qpb_double *max_eigv, qpb_double Lanczos_epsilon, int max_iters)
+  qpb_double *max_eigv, qpb_double bare_mass, qpb_double Lanczos_epsilon, \
+  int max_iters, int min_iters)
 {
-  /* It calculates the extreme eigenvalues of the eigenvalue spectrum 
-  of H^2, H ≡ γ5*Kernel(x), with: Kernel(x) = (a*D - ρ)(x), using the Lanczos
-  algorithm. */
+  /* It calculates the extreme eigenvalues of the eigenvalue spectrum
+  of H^2, H ≡ γ5*Kernel(x), with: Kernel(x) = (a*D + bare_mass)(x), using the
+  Lanczos algorithm.
+
+  'bare_mass' selects which kernel is probed: pass ov_params.m_bare = -rho
+  for the shifted kernel operator, X = γ5*(a*D - rho), and pass 0.0 for the
+  *unshifted* kernel, whose minimum eigenvalue is lambda_R^2 with lambda_R
+  the leftmost real mode of a*D.
+
+  'min_iters' is a floor on the number of iterations before the convergence
+  check is allowed to stop the loop: Lanczos approaches lambda_min from above
+  and can sit on a plateau, so a loose tolerance combined with a small
+  iteration count can stop early on a not-yet-converged estimate (pass 0 for
+  no floor). */
 
   qpb_lanczos_init();
 
   qpb_clover_term clover_term = ov_params.clover;
   qpb_double c_sw = ov_params.c_sw;
-  qpb_double mass = ov_params.m_bare; // Kernel operator mass set at -rho
+  qpb_double mass = bare_mass;
   qpb_double kappa = 1./(2*mass+8.);
   void *solver_arg_links = ov_params.gauge_ptr;
   
@@ -126,13 +139,19 @@ qpb_extreme_eigenvalues_of_X_squared(qpb_double *min_eigv, \
     if (i%100==0)
       print("\titer = %4d, CN = %e/%e = %e (change = %e, target = %e)\n", i+1,\
                       eig[i], eig[0], eig[i]/eig[0], dlambda, Lanczos_epsilon);
-    if(dlambda < Lanczos_epsilon*0.5)
+    if((i+1 >= min_iters) && dlambda < Lanczos_epsilon*0.5)
       break;
     lambda0 = lambda;
   }
 
   *min_eigv = (qpb_double) eig[0];
   *max_eigv = (qpb_double) eig[i-1];
+
+  free(a);
+  free(b);
+  free(eig);
+
+  qpb_lanczos_finalize();
 
   return i;
 }
@@ -145,8 +164,7 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover,
           enum qpb_kl_classes kl_class, int kl_iters, qpb_double rho,
           qpb_double c_sw, qpb_double mass, qpb_double scaling_factor,
           qpb_double ms_epsilon, int ms_max_iter,
-          qpb_double Lanczos_epsilon, int Lanczos_max_iters,
-          qpb_double delta_max, qpb_double delta_min)
+          qpb_double Lanczos_epsilon, int Lanczos_max_iters)
 {
   if(ov_params.initialized != QPB_OVERLAP_INITIALIZED)
   {
@@ -212,23 +230,14 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover,
     }
     ov_params.initialized = QPB_OVERLAP_INITIALIZED;
 
-    /* --------------------- extreme eigenvalues of X^2 --------------------- */
-    qpb_double min_eigv_squared, max_eigv_squared;
-
-    int Lanczos_iters = qpb_extreme_eigenvalues_of_X_squared(&min_eigv_squared,
-                        &max_eigv_squared, Lanczos_epsilon, Lanczos_max_iters);
-    print(" Total number of Lanczos algorithm iterations = %d\n", Lanczos_iters);
-
-    if (delta_min != 1.0)
-      min_eigv_squared *= delta_min;
-    if (delta_max != 1.0)
-      max_eigv_squared *= delta_max;
-
-    print(" Min eigenvalue squared = %.16f\n", min_eigv_squared);
-    print(" Max eigenvalue squared = %.16f\n", max_eigv_squared);
-
-    ov_params.min_eigv = sqrt(min_eigv_squared);
-    ov_params.max_eigv = sqrt(max_eigv_squared);
+    /* NOTE: ov_params.min_eigv / ov_params.max_eigv (the extrema of the
+    spectrum of X^2, X = γ5*(a*D - rho)) are deliberately not measured here.
+    Nothing in the diagonal KL construction needs them - unlike Zolotarev,
+    the KL partial-fraction coefficients do not depend on the spectral range,
+    and the scaling normalization below is anchored at rho - lambda_R rather
+    than at lambda_max - so paying for a second Lanczos run would be pure
+    cost. To bring them back, call qpb_extreme_eigenvalues_of_X_squared()
+    with bare_mass = ov_params.m_bare. */
 
     KL_diagonal_order = kl_iters;
     MS_solver_precision = ms_epsilon;
@@ -249,28 +258,87 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover,
                                                               i, shifts[i]);
     }
 
-    // Modify the numerical constants of the partial fraction expansions using
-    // the scaling parameter
+    /* Modify the numerical constants of the partial fraction expansion using
+    the scaling parameter mu = scaling_factor, which rescales the argument of
+    the approximation as X -> X/sqrt(mu):
+
+      f_n(x; mu) = f_n(x/sqrt(mu))
+                 = x*( c_0/sqrt(mu) + sum_i b_i*sqrt(mu)/(x^2 + mu*s_i) )
+
+    i.e. c_0 -> c_0/sqrt(mu), b_i -> b_i*sqrt(mu), s_i -> s_i*mu, so that
+    f_n(x; mu = 1) = f_n(x) is the unscaled approximation.
+
+    That rescaling moves every eigenvalue of the approximation, including the
+    leftmost real mode of the kernel. That mode sits at lambda_R - rho, and
+    the overlap procedure maps it to
+
+      (rho + am/2) + (rho - am/2)*f_n(lambda_R - rho)
+                      = (rho + am/2) - (rho - am/2)*f_n(rho - lambda_R)
+
+    (f_n is odd), which for an exact sign function is exactly am: this single
+    mode is what pins the bare mass of the overlap operator. For results to
+    stay consistent across values of mu, it must not move, so the scaled
+    approximation is multiplied by the normalization factor
+
+      N = f_n(rho - lambda_R; mu = 1) / f_n(rho - lambda_R; mu)
+
+    which by construction returns that mode to exactly where the unscaled
+    approximation puts it, for any mu.
+
+    Here lambda_R is the leftmost real eigenvalue of the *unshifted* kernel
+    a*D - that is, sqrt of the minimum eigenvalue of (γ5*a*D)^2, NOT
+    sqrt(lambda_min(X^2)) of the shifted kernel (typical value ~0.3). Since
+    f_n is odd, evaluating at rho - lambda_R > 0 rather than at
+    lambda_R - rho < 0 flips the sign of both numerator and denominator and
+    leaves N unchanged. */
     if (scaling_factor != 1.0)
     {
-      /* IMPORTANT: evaluate at lambda_max using the ORIGINAL (unscaled)
-         constant_term/numerators/shifts, before they get overwritten below. */
-      qpb_double lambda_max = ov_params.max_eigv;
-      qpb_double lambda_max_scaled = lambda_max / sqrt(scaling_factor);
+      qpb_double lambda_R_squared, unshifted_max_eigv_squared;
+      int Lanczos_iters = qpb_extreme_eigenvalues_of_X_squared( \
+                      &lambda_R_squared, &unshifted_max_eigv_squared, \
+                      0.0,  // unshifted kernel: bare mass 0, not -rho
+                      Lanczos_epsilon, Lanczos_max_iters, 100);
+      print(" Total number of Lanczos algorithm iterations = %d\n", \
+                                                                Lanczos_iters);
 
-      qpb_double f_n_at_lambda_max = sign_function_pfrac_form(lambda_max, \
+      qpb_double lambda_R = sqrt(lambda_R_squared);
+      print(" lambda_R (leftmost real mode of unshifted kernel) = %.16f\n", \
+                                                                    lambda_R);
+      print(" sanity check: unshifted kernel max eigenvalue squared = %.16f\n",\
+                                                  unshifted_max_eigv_squared);
+
+      qpb_double anchor = rho - lambda_R;
+      if(anchor <= 0.0)
+      {
+        error(" !\n");
+        error(" qpb_overlap_kl_pfrac_init: rho - lambda_R = %g <= 0 "
+              "(rho = %g, lambda_R = %g).\n", anchor, rho, lambda_R);
+        error(" The leftmost real kernel mode does not lie to the left of "
+              "rho, so the scaling normalization is undefined.\n");
+        error(" !\n");
+        exit(QPB_PARAMETERS_ERROR);
+      }
+
+      /* IMPORTANT: both evaluations use the ORIGINAL (unscaled)
+      constant_term/numerators/shifts, before they get overwritten below;
+      f_n(x; mu) is obtained by evaluating those unscaled coefficients at the
+      rescaled argument x/sqrt(mu). */
+      qpb_double f_n_at_anchor = sign_function_pfrac_form(anchor, \
                         numerators, shifts, constant_term, KL_diagonal_order);
-      qpb_double f_n_at_lambda_max_scaled = sign_function_pfrac_form(lambda_max_scaled, \
+      qpb_double f_n_at_anchor_scaled = sign_function_pfrac_form( \
+                        anchor/sqrt(scaling_factor), \
                         numerators, shifts, constant_term, KL_diagonal_order);
 
-      qpb_double correction_factor = f_n_at_lambda_max / f_n_at_lambda_max_scaled;
+      qpb_double normalization_factor = f_n_at_anchor / f_n_at_anchor_scaled;
+      print(" f_n(rho - lambda_R; mu = 1)   = %.16f\n", f_n_at_anchor);
+      print(" f_n(rho - lambda_R; mu = %g) = %.16f\n", scaling_factor, \
+                                                      f_n_at_anchor_scaled);
+      print(" normalization factor N        = %.16f\n", normalization_factor);
 
-      constant_term *= 1.0/sqrt(scaling_factor);
-      constant_term *= correction_factor;
+      constant_term *= normalization_factor/sqrt(scaling_factor);
       for(int i=0; i<KL_diagonal_order; i++)
       {
-        numerators[i] *= sqrt(scaling_factor);
-        numerators[i] *= correction_factor;
+        numerators[i] *= normalization_factor*sqrt(scaling_factor);
         shifts[i] *= scaling_factor;
       }
     }
@@ -299,8 +367,6 @@ qpb_overlap_kl_pfrac_finalize()
   ov_params.initialized = 0;
   
   qpb_mscongrad_finalize(KL_diagonal_order);
-
-  qpb_lanczos_finalize();
 
   free(numerators);
   free(shifts);
