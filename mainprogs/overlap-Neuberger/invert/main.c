@@ -959,8 +959,20 @@ main(int argc, char *argv[])
 
   qpb_double t = qpb_stop_watch(0);
 
+  /* Optimal scaling: when nonzero, the scaling parameter mu is computed from
+  the spectrum of X as mu = alpha*beta (alpha = min|X|, beta = max|X|,
+  measured with Lanczos) and the "Scaling factor" input entry is ignored.
+  Set to 0 to use that input entry verbatim, as before. */
+  int optimal_scaling=1;
+  qpb_double Lanczos_epsilon=1e-10;
+  int Lanczos_max_iters=10000;
+  qpb_double delta_min=0.5;
+  qpb_double delta_max=1.1;
+
   qpb_overlap_Neuberger_init(solver_arg_links, clover_term, kl_class, kl_iters, \
-                    rho, c_sw, mass, scaling_factor, ms_epsilon, ms_max_iters);
+                    rho, c_sw, mass, scaling_factor, ms_epsilon, ms_max_iters, \
+                    optimal_scaling, Lanczos_epsilon, Lanczos_max_iters, \
+                    delta_min, delta_max);
 
   for(int i=0; i<n_spinors; i++)
   {

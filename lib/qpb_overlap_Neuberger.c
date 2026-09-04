@@ -14,6 +14,7 @@
 #include <qpb_kl_defs.h>
 #include <qpb_mscongrad.h>
 #include <math.h>
+#include <stdlib.h>
 #include <qpb.h>
 
 #include <gsl/gsl_vector.h>
@@ -43,7 +44,7 @@ static qpb_double constant_term;
 
 /* --------------------- EXTREME EIGENVALUES FUNCTIONS --------------------- */
 
-INLINE void
+static void
 tridiag_eigenv(double *eig, double *a, double *b, int n)
 {
   /* It calculates the set of eigenvalues of the tri-diagonal matrix
@@ -78,19 +79,30 @@ tridiag_eigenv(double *eig, double *a, double *b, int n)
 }
 
 
-int
+static int
 qpb_extreme_eigenvalues_of_X_squared(qpb_double *min_eigv, \
-  qpb_double *max_eigv, qpb_double Lanczos_epsilon, int max_iters)
+  qpb_double *max_eigv, qpb_double bare_mass, qpb_double Lanczos_epsilon, \
+  int max_iters, int min_iters)
 {
-  /* It calculates the extreme eigenvalues of the eigenvalue spectrum 
-  of H^2, H ≡ γ5*Kernel(x), with: Kernel(x) = (a*D - ρ)(x), using the Lanczos
-  algorithm. */
+  /* It calculates the extreme eigenvalues of the eigenvalue spectrum
+  of H^2, H ≡ γ5*Kernel(x), with: Kernel(x) = (a*D + bare_mass)(x), using the
+  Lanczos algorithm.
+
+  'bare_mass' selects which kernel is probed: pass ov_params.m_bare = -rho
+  for the shifted kernel operator X = γ5*(a*D - rho), whose spectrum is the
+  one the sign function approximation has to cover.
+
+  'min_iters' is a floor on the number of iterations before the convergence
+  check is allowed to stop the loop: Lanczos approaches lambda_min from above
+  and can sit on a plateau, so a loose tolerance combined with a small
+  iteration count can stop early on a not-yet-converged estimate (pass 0 for
+  no floor). */
 
   qpb_lanczos_init();
 
   qpb_clover_term clover_term = ov_params.clover;
   qpb_double c_sw = ov_params.c_sw;
-  qpb_double mass = ov_params.m_bare; // Kernel operator mass set at -rho
+  qpb_double mass = bare_mass;
   qpb_double kappa = 1./(2*mass+8.);
   void *solver_arg_links = ov_params.gauge_ptr;
   
@@ -102,23 +114,36 @@ qpb_extreme_eigenvalues_of_X_squared(qpb_double *min_eigv, \
   qpb_lanczos(a, b, solver_arg_links, clover_term, kappa, c_sw, 1);
   qpb_double lambda = 0, dlambda, lambda0 = 1e3;
   int i=0;
+  int n_ritz = 0;  /* size of the last tridiagonal system actually solved */
   for(i=1; i<max_iters; i++)
   {
     qpb_lanczos(a, b, solver_arg_links, clover_term, kappa, c_sw, -1);
     tridiag_eigenv(eig, a, b, i+1);
+    n_ritz = i+1;
 
     lambda = eig[i] / eig[0];
     dlambda = fabs(lambda - lambda0) / fabs(lambda + lambda0);
     if (i%100==0)
       print("\titer = %4d, CN = %e/%e = %e (change = %e, target = %e)\n", i+1,\
                       eig[i], eig[0], eig[i]/eig[0], dlambda, Lanczos_epsilon);
-    if(dlambda < Lanczos_epsilon*0.5)
+    if((i+1 >= min_iters) && dlambda < Lanczos_epsilon*0.5)
       break;
     lambda0 = lambda;
   }
 
+  /* The last tridiag_eigenv() call filled eig[0..n_ritz-1], so the largest
+  Ritz value is eig[n_ritz-1]: indexing it as eig[i-1] is only correct when
+  the loop ran to exhaustion, and returns the *second* largest Ritz value on
+  the (usual) converged-and-broke path - inconsistent with the convergence
+  check just above, which already treats eig[i] as lambda_max. */
   *min_eigv = (qpb_double) eig[0];
-  *max_eigv = (qpb_double) eig[i-1];
+  *max_eigv = (qpb_double) eig[n_ritz-1];
+
+  free(a);
+  free(b);
+  free(eig);
+
+  qpb_lanczos_finalize();
 
   return i;
 }
@@ -129,7 +154,9 @@ void
 qpb_overlap_Neuberger_init(void * gauge, qpb_clover_term clover, \
           enum qpb_kl_classes kl_class, int kl_iters, qpb_double rho, \
           qpb_double c_sw, qpb_double mass, qpb_double scaling_factor, \
-          qpb_double ms_epsilon, int ms_max_iter)
+          qpb_double ms_epsilon, int ms_max_iter, int optimal_scaling, \
+          qpb_double Lanczos_epsilon, int Lanczos_max_iters, \
+          qpb_double delta_min, qpb_double delta_max)
 {
   if(ov_params.initialized != QPB_OVERLAP_INITIALIZED)
   {
@@ -195,38 +222,84 @@ qpb_overlap_Neuberger_init(void * gauge, qpb_clover_term clover, \
     }
     ov_params.initialized = QPB_OVERLAP_INITIALIZED;
 
-    /* --------------------- extreme eigenvalues of X^2 --------------------- */
+    /* ------------------------ the scaling parameter ------------------------ */
 
-    // /* Temporary specs*/
-    // qpb_double Lanczos_epsilon = 1e-10;
-    // qpb_double Lanczos_max_iters = 1000000;
-    // qpb_double delta_min=0.5;
-    // qpb_double delta_max=1.1;
+    /* mu is the scaling parameter that rescales the argument of the sign
+    function approximation as X -> X/sqrt(mu). It is either taken verbatim
+    from the caller ('scaling_factor', i.e. the "Scaling factor" input file
+    entry) or, when 'optimal_scaling' is nonzero, computed from the spectrum
+    of X as the so-called optimal scaling
 
-    // qpb_double min_eigv_squared;
-    // qpb_double max_eigv_squared;
+      mu = alpha*beta,  alpha = min|X|, beta = max|X|,  |X| = sqrt(X^2)
 
-    // /* First the the extrema of the eigenvalues spectrum of H^2,
-    // H = g5*(D - rho), are calculated and are stored inside the
-    // 'min_eigv_squared' and 'max_eigv_squared'variables correspondingly. */
-    // int Lanczos_iters = qpb_extreme_eigenvalues_of_X_squared(&min_eigv_squared,\
-    //                   &max_eigv_squared, Lanczos_epsilon, Lanczos_max_iters);
-    // print(" Total number of Lanczos algorithm iterations = %d\n", \
-    //                                                             Lanczos_iters);
-    // /* If requested the extreme eigenvalues are modified accordingly */
-    // if (delta_min != 1.0)
-    //   min_eigv_squared *= delta_min;
-    // if (delta_max != 1.0)
-    //   max_eigv_squared *= delta_max;
-    
-    // print(" Min eigenvalue squared = %.16f\n", min_eigv_squared);
-    // print(" Max eigenvalue squared = %.16f\n", max_eigv_squared);
+    The Neuberger approximation built below is
 
-    // /* And then their square root value is stored inside the 'min_eigv' and
-    // 'max_eigv' attributes of the 'ov_params' struct. */
-    
-    // ov_params.min_eigv = sqrt(min_eigv_squared);
-    // ov_params.max_eigv = sqrt(max_eigv_squared);
+      h_n(x) = x*(1/n)*sum_i sec^2(theta_i)/(x^2 + tan^2(theta_i))
+             = [(1+x)^(2n) - (1-x)^(2n)] / [(1+x)^(2n) + (1-x)^(2n)]
+
+    which is invariant under x -> 1/x, since (x-1)^(2n) = (1-x)^(2n). The
+    approximation error at the two ends of the rescaled spectrum,
+    alpha/sqrt(mu) and beta/sqrt(mu), is therefore equal exactly when those
+    two are reciprocals of each other, i.e. when mu = alpha*beta: that choice
+    equalizes the error at the spectral endpoints and so minimizes the worst
+    error over the whole spectrum. */
+
+    qpb_double mu = scaling_factor;
+
+    if(optimal_scaling)
+    {
+      /* The extrema of the eigenvalue spectrum of X^2, X = g5*(a*D - rho),
+      are calculated and stored in 'min_eigv_squared' and 'max_eigv_squared'
+      correspondingly. */
+      qpb_double min_eigv_squared, max_eigv_squared;
+      int Lanczos_iters = qpb_extreme_eigenvalues_of_X_squared( \
+                      &min_eigv_squared, &max_eigv_squared, \
+                      ov_params.m_bare,  // shifted kernel: bare mass = -rho
+                      Lanczos_epsilon, Lanczos_max_iters, 100);
+      print(" Total number of Lanczos algorithm iterations = %d\n", \
+                                                                Lanczos_iters);
+      print(" Min eigenvalue squared (raw) = %.16f\n", min_eigv_squared);
+      print(" Max eigenvalue squared (raw) = %.16f\n", max_eigv_squared);
+
+      /* Safeguards: Lanczos returns interior estimates - it approaches
+      lambda_min from above and lambda_max from below - so the measured
+      interval is widened before it is used, by shrinking the lower end
+      (delta_min < 1) and stretching the upper end (delta_max > 1). */
+      if (delta_min != 1.0)
+        min_eigv_squared *= delta_min;
+      if (delta_max != 1.0)
+        max_eigv_squared *= delta_max;
+
+      if(min_eigv_squared <= 0.0 || max_eigv_squared <= 0.0)
+      {
+        error(" !\n");
+        error(" qpb_overlap_Neuberger_init: non-positive eigenvalue estimate "
+              "of X^2 (min = %g, max = %g) after applying delta_min = %g, "
+              "delta_max = %g.\n", min_eigv_squared, max_eigv_squared, \
+                                                        delta_min, delta_max);
+        error(" !\n");
+        exit(QPB_PARAMETERS_ERROR);
+      }
+
+      /* And then their square roots, the extrema of |X| = sqrt(X^2), are
+      stored inside the 'min_eigv' and 'max_eigv' attributes of the
+      'ov_params' struct. */
+      ov_params.min_eigv = sqrt(min_eigv_squared);
+      ov_params.max_eigv = sqrt(max_eigv_squared);
+
+      qpb_double alpha = ov_params.min_eigv;
+      qpb_double beta = ov_params.max_eigv;
+
+      mu = alpha*beta;
+
+      print(" alpha = min|X|               = %.16f\n", alpha);
+      print(" beta  = max|X|               = %.16f\n", beta);
+      print(" condition number beta/alpha  = %.16f\n", beta/alpha);
+      print(" optimal scaling mu = alpha*beta = %.16f\n", mu);
+      if(scaling_factor != mu)
+        print(" NOTE: optimal scaling is on, so the supplied scaling factor "
+              "(%g) is ignored.\n", scaling_factor);
+    }
 
     /* ----------------------- expansion coefficients ----------------------- */
 
@@ -234,7 +307,9 @@ qpb_overlap_Neuberger_init(void * gauge, qpb_clover_term clover, \
     MS_solver_precision = ms_epsilon;
     MS_maximum_solver_iterations = ms_max_iter;
 
-    /* Calculate the numerical terms of the partial fraction expansion */
+    /* Calculate the numerical terms of the partial fraction expansion.
+    'constant_term' is scratch storage for 1/n here; it is NOT an additive
+    term of the expansion, and is not read again after this loop. */
     shifts = qpb_alloc(sizeof(qpb_double)*KL_diagonal_order);
     numerators = qpb_alloc(sizeof(qpb_double)*KL_diagonal_order);
 
@@ -249,15 +324,24 @@ qpb_overlap_Neuberger_init(void * gauge, qpb_clover_term clover, \
                                                               i, shifts[i]);
     }
 
-    // Modify the numerical constants of the partial fraction expansions using
-    // the scaling parameter
-    if (scaling_factor != 1.0)
+    /* Modify the numerical constants of the partial fraction expansion using
+    the scaling parameter mu, which rescales the argument of the
+    approximation as X -> X/sqrt(mu):
+
+      h_n(x; mu) = h_n(x/sqrt(mu))
+                 = x*( c_0/sqrt(mu) + sum_i b_i*sqrt(mu)/(x^2 + mu*s_i) )
+
+    i.e. b_i -> b_i*sqrt(mu), s_i -> s_i*mu. Note there is no additive
+    constant to rescale: unlike the diagonal KL expansion, this one is a
+    proper rational function with no c_0 term (see
+    qpb_gamma5_sign_function_of_X_Neuberger below), and 'constant_term' here
+    is only scratch storage holding 1/n while the coefficients are built. */
+    if (mu != 1.0)
     {
-      constant_term *= 1/sqrt(scaling_factor);
       for(int i=0; i<KL_diagonal_order; i++)
       {
-        numerators[i] *= sqrt(scaling_factor);
-        shifts[i] *= scaling_factor;
+        numerators[i] *= sqrt(mu);
+        shifts[i] *= mu;
       }
     }
 
@@ -314,8 +398,14 @@ D_op(qpb_spinor_field y, qpb_spinor_field x)
 void
 qpb_gamma5_sign_function_of_X_Neuberger(qpb_spinor_field y, qpb_spinor_field x)
 {
-  /* Implements: γ5(sign(X(x))) = γ5(X(c_0 + Sum_{i=1}^{n} c_i/(X^2+σ_i) )),
-      with X(x) = γ5(D(x) - ρ*x) . */
+  /* Implements: γ5(sign(X(x))) = γ5(X(Sum_{i=1}^{n} c_i/(X^2+σ_i))),
+      with X(x) = γ5(D(x) - ρ*x) .
+
+  Note there is no additive c_0 term here, unlike the diagonal KL expansion:
+  with c_i = (1/n)*sec^2(θ_i) and σ_i = tan^2(θ_i), θ_i = (π/2n)*(i+1/2),
+  this sum is exactly the Neuberger rational function
+  [(1+x)^(2n) - (1-x)^(2n)] / [(1+x)^(2n) + (1-x)^(2n)], which already
+  satisfies h_n(1) = 1. Adding a c_0 would give h_n(1) = (n+1)/n instead. */
 
   qpb_spinor_field sum = ov_temp_vecs[0];
 
