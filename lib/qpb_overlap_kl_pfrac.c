@@ -58,7 +58,7 @@ sign_function_pfrac_form(qpb_double x, qpb_double *numerators_in, \
 
 /* --------------------- EXTREME EIGENVALUES FUNCTIONS --------------------- */
 
-INLINE void
+static void
 tridiag_eigenv(qpb_double *eig, qpb_double *a, qpb_double *b, int n)
 {
   /* It calculates the set of eigenvalues of the tri-diagonal matrix
@@ -93,7 +93,7 @@ tridiag_eigenv(qpb_double *eig, qpb_double *a, qpb_double *b, int n)
 }
 
 
-int
+static int
 qpb_extreme_eigenvalues_of_X_squared(qpb_double *min_eigv, \
   qpb_double *max_eigv, qpb_double bare_mass, qpb_double Lanczos_epsilon, \
   int max_iters, int min_iters)

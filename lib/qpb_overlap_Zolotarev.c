@@ -124,7 +124,7 @@ calculate_normalization_constant(qpb_double *c, int n, \
 
 /* --------------------- EXTREME EIGENVALUES FUNCTIONS --------------------- */
 
-INLINE void
+static void
 tridiag_eigenv(qpb_double *eig, qpb_double *a, qpb_double *b, int n)
 {
   /* It calculates the set of eigenvalues of the tri-diagonal matrix
@@ -159,7 +159,7 @@ tridiag_eigenv(qpb_double *eig, qpb_double *a, qpb_double *b, int n)
 }
 
 
-int
+static int
 qpb_extreme_eigenvalues_of_X_squared(qpb_double *min_eigv, \
   qpb_double *max_eigv, qpb_double Lanczos_epsilon, int max_iters)
 {

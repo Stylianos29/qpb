@@ -153,7 +153,7 @@ expansion_Chebyshev_coeff_n(int n)
 
 /* --------------------- EXTREME EIGENVALUES FUNCTIONS --------------------- */
 
-INLINE void
+static void
 tridiag_eigenv(double *eig, double *a, double *b, int n)
 {
   /* It calculates the set of eigenvalues of the tri-diagonal matrix
@@ -188,7 +188,7 @@ tridiag_eigenv(double *eig, double *a, double *b, int n)
 }
 
 
-int
+static int
 qpb_extreme_eigenvalues_of_X_squared(qpb_double *min_eigv, \
   qpb_double *max_eigv, qpb_double Lanczos_epsilon, int max_iters)
 {
