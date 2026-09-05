@@ -973,7 +973,9 @@ main(int argc, char *argv[])
                     rho, c_sw, mass, scaling_factor, ms_epsilon, ms_max_iters, \
                     optimal_scaling, Lanczos_epsilon, Lanczos_max_iters, \
                     delta_min, delta_max);
-
+  qpb_double t_overhead = qpb_stop_watch(t);
+  print(" Total overhead time: %f sec\n", t_overhead);
+  
   for(int i=0; i<n_spinors; i++)
   {
     print("\n");
