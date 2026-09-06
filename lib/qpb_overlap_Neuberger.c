@@ -270,6 +270,9 @@ qpb_overlap_Neuberger_init(void * gauge, qpb_clover_term clover, \
       if (delta_max != 1.0)
         max_eigv_squared *= delta_max;
 
+      print(" Min eigenvalue squared = %.16f\n", min_eigv_squared);
+      print(" Max eigenvalue squared = %.16f\n", max_eigv_squared);
+
       if(min_eigv_squared <= 0.0 || max_eigv_squared <= 0.0)
       {
         error(" !\n");
