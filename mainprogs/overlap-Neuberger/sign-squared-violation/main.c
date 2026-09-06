@@ -141,7 +141,7 @@ main(int argc, char *argv[])
     }
   
   int kl_iters;
-  if(sscanf(qpb_parse("KL iters"), "%d", &kl_iters)!=1)
+  if(sscanf(qpb_parse("Upper diagonal iters"), "%d", &kl_iters)!=1)
     {
       error("error parsing for %s\n", 
 	    "KL iters");
