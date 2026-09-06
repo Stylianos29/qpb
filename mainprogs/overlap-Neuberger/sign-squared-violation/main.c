@@ -442,6 +442,8 @@ main(int argc, char *argv[])
   qpb_double *diffs;
   diffs = qpb_alloc(sizeof(qpb_double)*n_vec);
 
+  qpb_double t = qpb_stop_watch(0);
+
   /* Optimal scaling: when nonzero, the scaling parameter mu is computed from
   the spectrum of X as mu = alpha*beta (alpha = min|X|, beta = max|X|,
   measured with Lanczos) and the "Scaling factor" input entry is ignored.
@@ -456,8 +458,9 @@ main(int argc, char *argv[])
                     rho, c_sw, mass, scaling_factor, epsilon, max_iters, \
                     optimal_scaling, Lanczos_epsilon, Lanczos_max_iters, \
                     delta_min, delta_max);
-
-  qpb_double t = qpb_stop_watch(0);
+  qpb_double t_overhead = qpb_stop_watch(t);
+  print(" Total overhead time: %f sec\n", t_overhead);
+  
   for(int i=0; i<n_vec; i++)
   {
     print("\n");
