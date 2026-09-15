@@ -606,6 +606,23 @@ main(int argc, char *argv[])
       exit(QPB_PARSER_ERROR);
     }
 
+  /* Deflation subspace build: the Lanczos pass that produces the low modes of
+     X^2 runs until the retained Ritz values are stable to this tolerance. */
+  qpb_double Lanczos_epsilon;
+  if(sscanf(qpb_parse("Lanczos epsilon"), "%lf", &Lanczos_epsilon)!=1)
+    {
+      error("error parsing for %s\n",
+	    "Lanczos epsilon");
+      exit(QPB_PARSER_ERROR);
+    }
+  int Lanczos_max_iters;
+  if(sscanf(qpb_parse("Lanczos max iters"), "%d", &Lanczos_max_iters)!=1)
+    {
+      error("error parsing for %s\n",
+	    "Lanczos max iters");
+      exit(QPB_PARSER_ERROR);
+    }
+
   int use_preconditioning;
   char prec_toggle[256];
   if(sscanf(qpb_parse("Preconditioning"), "%s", prec_toggle) != 1)
@@ -815,6 +832,8 @@ main(int argc, char *argv[])
   print(" Outer max solver iters = %d\n", outer_max_iters);
   print(" Inner solver epsilon = %e\n", ms_epsilon);
   print(" Inner max solver iters = %d\n", ms_max_iters);
+  print(" Lanczos epsilon = %e\n", Lanczos_epsilon);
+  print(" Lanczos max iters = %d\n", Lanczos_max_iters);
   if(use_preconditioning) {
     print(" Preconditioning = yes\n");
     print(" Preconditioner solver epsilon = %e\n", prec_epsilon);
@@ -1026,7 +1045,8 @@ main(int argc, char *argv[])
   qpb_overlap_kl_pfrac_init(solver_arg_links, clover_term, kl_class, kl_iters,
                   rho, c_sw, mass, scaling_factor,
                   ms_epsilon, prec_ms_epsilon, ms_max_iters,
-                  prec_epsilon, prec_max_iter);
+                  prec_epsilon, prec_max_iter,
+                  Lanczos_epsilon, Lanczos_max_iters);
 
   for(int i=0; i<n_spinors; i++)
   {

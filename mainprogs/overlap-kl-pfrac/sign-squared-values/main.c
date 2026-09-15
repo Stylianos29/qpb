@@ -285,6 +285,24 @@ main(int argc, char *argv[])
     exit(QPB_PARSER_ERROR);
   }
 
+  /* Deflation subspace build: the Lanczos pass that produces the low modes of
+     X^2 runs until the retained Ritz values are stable to this tolerance. */
+  qpb_double Lanczos_epsilon;
+  if(sscanf(qpb_parse("Lanczos epsilon"), "%lf", &Lanczos_epsilon)!=1)
+    {
+      error("error parsing for %s\n",
+	    "Lanczos epsilon");
+      exit(QPB_PARSER_ERROR);
+    }
+
+  int Lanczos_max_iters;
+  if(sscanf(qpb_parse("Lanczos max iters"), "%d", &Lanczos_max_iters)!=1)
+    {
+      error("error parsing for %s\n",
+	    "Lanczos max iters");
+      exit(QPB_PARSER_ERROR);
+    }
+
   qpb_finalize_parser();
 
   /* initialize cartesian grid and index tables */
@@ -338,6 +356,8 @@ main(int argc, char *argv[])
   print(" BC in time = %g\n", timebc);
   print(" Solver epsilon = %e\n", epsilon);
   print(" Max solver iters = %d\n", max_iters);
+  print(" Lanczos epsilon = %e\n", Lanczos_epsilon);
+  print(" Lanczos max iters = %d\n", Lanczos_max_iters);
   switch(which_dslash_op)
     {
     case QPB_DSLASH_BRILLOUIN:
@@ -442,8 +462,15 @@ main(int argc, char *argv[])
   qpb_double *diffs;
   diffs = qpb_alloc(sizeof(qpb_double)*n_vec);
 
-  qpb_overlap_kl_pfrac_init(solver_arg_links, clover_term, kl_class, kl_iters, \
-                          rho, c_sw, mass, scaling_factor, epsilon, max_iters);
+  /* "Solver epsilon" / "Solver max iters" drive the inner multi-shift CG that
+     evaluates the partial fraction.  This program only applies sign(X) forward,
+     never the preconditioned inverter, so the preconditioner is switched off
+     (prec_max_iter = 0) and its tolerances are inert. */
+  qpb_overlap_kl_pfrac_init(solver_arg_links, clover_term, kl_class, kl_iters,
+                          rho, c_sw, mass, scaling_factor,
+                          epsilon, epsilon, max_iters,
+                          epsilon, 0,
+                          Lanczos_epsilon, Lanczos_max_iters);
 
   qpb_double t = qpb_stop_watch(0);
 
