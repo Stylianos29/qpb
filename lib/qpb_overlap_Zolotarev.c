@@ -533,12 +533,16 @@ qpb_overlap_Zolotarev_init(void * gauge, qpb_clover_term clover, \
                       Lanczos_epsilon, Lanczos_max_iters, 0);
     print(" Total number of Lanczos algorithm iterations = %d\n", \
                                                                 Lanczos_iters);
-    /* delta_min is kept only for source compatibility with existing callers;
-    a fixed multiplier here can drive the Zolotarev approximation into
+    /* A fixed multiplier here can drive the Zolotarev approximation into
     resonance with the leftmost kernel mode (see
-    ZOLOTAREV_DELTA_MIN_SPEC.md), so it is no longer applied. The safe
-    replacement, 'selected_delta_min' below, is computed automatically. */
-    (void) delta_min;
+    ZOLOTAREV_DELTA_MIN_SPEC.md), so by default 'delta_min' is not applied and
+    the safe replacement, 'selected_delta_min' below, is computed
+    automatically. Manual override, for studies only: a passed value with
+    0 < delta_min < 1 is used as 'selected_delta_min' as is, and ALL the
+    selector's safety checks (selector, index-flip abort) are skipped.
+    delta_min = 1.0 (the wrapper's default) or any value outside (0, 1)
+    keeps the automatic selector. */
+    int manual_delta_min = (delta_min > 0.0 && delta_min < 1.0);
 
     if (delta_max != 1.0)
       max_eigv_squared *= delta_max;
@@ -580,10 +584,18 @@ qpb_overlap_Zolotarev_init(void * gauge, qpb_clover_term clover, \
                                       unrelated to theta_gate below */
     qpb_double delta_min_cap = 0.9;  /* ceiling on delta_min; see
                                       select_delta_min for why 0.9, not 1.0 */
-    qpb_double selected_delta_min = select_delta_min(min_eigv_squared, \
+    qpb_double selected_delta_min;
+    if(manual_delta_min)
+    {
+      selected_delta_min = delta_min;
+      print(" delta_min supplied manually (selector and safety checks "
+            "bypassed)\n");
+    }
+    else
+      selected_delta_min = select_delta_min(min_eigv_squared, \
                       max_eigv, rho, mass, delta, Zol_iters, theta_window, \
                       delta_min_cap);
-    if(selected_delta_min <= 0.0)
+    if(!manual_delta_min && selected_delta_min <= 0.0)
     {
       error(" !\n");
       error(" select_delta_min: no value of alpha (with delta_min <= %g) "
@@ -655,39 +667,42 @@ qpb_overlap_Zolotarev_init(void * gauge, qpb_clover_term clover, \
     in the range, which flips the index. Unlike the d_Z gate below, this one
     aborts - an index-flipped operator is not a low-quality measurement, it
     is the wrong operator. */
-    qpb_double x_at_window_min;
-    qpb_double window_sigma_min = window_min_sigma(lambda_min, rho - delta, \
-                ov_params.min_eigv, C, R, Zolotarev_order, c, \
-                normalization_constant, &x_at_window_min);
-
-    print(" min sigma_min over [lam_min, rho-delta]  = %.6e (at x = %.6f, "
-          "theta_window*am = %.6e)\n", window_sigma_min, x_at_window_min, \
-                                                            theta_window*mass);
-
-    print_overshoot_regions(lambda_min, rho - delta, ov_params.min_eigv, C, R, \
-                Zolotarev_order, c, normalization_constant);
-
-    if(window_sigma_min <= 0.0)
+    if(!manual_delta_min)
     {
-      error(" !\n");
-      error(" The selected approximation has Z_n > C/R at x = %g, inside "
-            "[lambda_min, rho - delta] = [%g, %g]: a real kernel mode there "
-            "would give D_ov a flipped index.\n", x_at_window_min, \
-                                                        lambda_min, rho - delta);
-      error(" This Zolotarev order (n = %d) cannot safely represent am = %g "
-            "at rho = %g with delta = %g; raise n.\n", Zolotarev_order, mass, \
-                                                                    rho, delta);
-      error(" !\n");
-      exit(QPB_PARAMETERS_ERROR);
-    }
-    else if(window_sigma_min < theta_window*mass)
-    {
-      print(" WARNING: the margin over [lambda_min, rho - delta] is below "
-            "theta_window*am.\n"
-            "          The index is correct, but D_ov is closer to singular "
-            "away from\n"
-            "          rho - delta than the selector's own window test "
-            "guarantees at it.\n");
+      qpb_double x_at_window_min;
+      qpb_double window_sigma_min = window_min_sigma(lambda_min, rho - delta, \
+                  ov_params.min_eigv, C, R, Zolotarev_order, c, \
+                  normalization_constant, &x_at_window_min);
+
+      print(" min sigma_min over [lam_min, rho-delta]  = %.6e (at x = %.6f, "
+            "theta_window*am = %.6e)\n", window_sigma_min, x_at_window_min, \
+                                                              theta_window*mass);
+
+      print_overshoot_regions(lambda_min, rho - delta, ov_params.min_eigv, C, R, \
+                  Zolotarev_order, c, normalization_constant);
+
+      if(window_sigma_min <= 0.0)
+      {
+        error(" !\n");
+        error(" The selected approximation has Z_n > C/R at x = %g, inside "
+              "[lambda_min, rho - delta] = [%g, %g]: a real kernel mode there "
+              "would give D_ov a flipped index.\n", x_at_window_min, \
+                                                          lambda_min, rho - delta);
+        error(" This Zolotarev order (n = %d) cannot safely represent am = %g "
+              "at rho = %g with delta = %g; raise n.\n", Zolotarev_order, mass, \
+                                                                      rho, delta);
+        error(" !\n");
+        exit(QPB_PARAMETERS_ERROR);
+      }
+      else if(window_sigma_min < theta_window*mass)
+      {
+        print(" WARNING: the margin over [lambda_min, rho - delta] is below "
+              "theta_window*am.\n"
+              "          The index is correct, but D_ov is closer to singular "
+              "away from\n"
+              "          rho - delta than the selector's own window test "
+              "guarantees at it.\n");
+      }
     }
 
     /* d_Z quality gate: the window/margin test above guards invertibility
