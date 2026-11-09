@@ -22,9 +22,8 @@ testprogs/source_rms/source_rms
 
 install/*
 
-mainprogs/*/*/run.sh
-mainprogs/*/*/test.txt
-mainprogs/*/*/test.err
+mainprogs/**/run.sh
+mainprogs/**/test*
 
 mainprogs/overlap-Chebyshev/ginsparg-wilson-relation/ginsparg-wilson-relation
 mainprogs/overlap-Chebyshev/invert/invert
