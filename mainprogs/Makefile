@@ -13,7 +13,7 @@ else
 	MAKE += --no-print-directory
 endif
 
-DIRS = gauge-smear invert mesons eigens baryons overlap-kl multiq overlap-Chebyshev overlap-kl-pfrac overlap-Neuberger overlap-Zolotarev
+DIRS = gauge-smear invert forward mesons eigens baryons overlap-kl multiq overlap-Chebyshev overlap-kl-pfrac overlap-Neuberger overlap-Zolotarev
 
 all: 
 	-$(C)for d in $(DIRS); do ($(MAKE) -C $$d); done
