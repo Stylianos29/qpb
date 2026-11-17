@@ -33,6 +33,7 @@ mainprogs/overlap-Chebyshev/normality/normality
 mainprogs/overlap-Chebyshev/sign-squared-values/sign-squared-values
 mainprogs/overlap-Chebyshev/sign-squared-violation/sign-squared-violation
 
+mainprogs/overlap-kl-pfrac/eigens/eigens
 mainprogs/overlap-kl-pfrac/ginsparg-wilson-relation/ginsparg-wilson-relation
 mainprogs/overlap-kl-pfrac/invert/invert
 mainprogs/overlap-kl-pfrac/mesons/mesons
