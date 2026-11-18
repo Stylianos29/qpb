@@ -49,6 +49,8 @@ mainprogs/overlap-Zolotarev/invert/invert
 mainprogs/overlap-Neuberger/mesons/mesons
 mainprogs/overlap-Zolotarev/sign-squared-violation/sign-squared-violation
 
+mainprogs/twisted-mass-kl/*
+
 */*/qpb_parameters_scan_files/
 */*/*/qpb_parameters_scan_files/
 
