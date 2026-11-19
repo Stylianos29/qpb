@@ -247,6 +247,11 @@ main(int argc, char *argv[])
 	    "Lanczos max iters");
       exit(QPB_PARSER_ERROR);
     }
+  if(max_iters<2)
+    {
+      error("Lanczos max iters should be at least 2, quiting\n");
+      exit(QPB_PARAMETERS_ERROR);
+    }
   qpb_finalize_parser();
 
   /* initialize cartesian grid and index tables */
@@ -381,26 +386,40 @@ main(int argc, char *argv[])
   eig = qpb_alloc(sizeof(qpb_double)*max_iters);
 
   qpb_lanczos(a, b, solver_arg_links, clover_term, kappa, c_sw, 1);
-  qpb_double lambda = 0, dlambda, lambda0 = 1e3;
-  int i = 0;
-  for(i=1; 1<max_iters; i++)
+  qpb_double lambda = 0, dlambda = 1, lambda0 = 1e3;
+  int converged = 0;
+  int n = 1; /* dimension of the Krylov space built so far */
+  for(int i=1; i<max_iters; i++)
     {
       qpb_lanczos(a, b, solver_arg_links, clover_term, kappa, c_sw, -1);
-      tridiag_eigenv(eig, a, b, i+1);
+      n = i+1;
+      tridiag_eigenv(eig, a, b, n);
 
       lambda = eig[i] / eig[0];
       dlambda = fabs(lambda - lambda0) / fabs(lambda + lambda0);
       print(" iter = %4d, CN = %e/%e = %e (change = %e, target = %e)\n",
-	    i+1, eig[i], eig[0], eig[i]/eig[0], dlambda, epsilon);
+	    n, eig[i], eig[0], eig[i]/eig[0], dlambda, epsilon);
       if(dlambda < epsilon*0.5)
-	break;
+	{
+	  converged = 1;
+	  break;
+	}
       lambda0 = lambda;
     }
   t = qpb_stop_watch(t);
+  if(!converged)
+    {
+      error(" !\n");
+      error(" Lanczos *did not* converge after %d iters, t = %g sec\n", n, t);
+      error(" change = %e, target = %e\n", dlambda, epsilon);
+      error(" !\n");
+    }
   print(" Done, kappa = %g, CN = %+f, in t = %g sec\n", kappa, lambda, t);
 
-  for(int j=0; j<numb_eigv; j++)
-    print(" %3d %e %e\n", j, eig[j], eig[i-j]);
+  /* Only n Ritz values exist; print the numb_eigv lowest and highest */
+  int n_print = numb_eigv < n ? numb_eigv : n;
+  for(int j=0; j<n_print; j++)
+    print(" %3d %e %e\n", j, eig[j], eig[n-1-j]);
 
   qpb_lanczos_finalize();
   if(which_dslash_op == QPB_DSLASH_BRILLOUIN)
