@@ -161,23 +161,6 @@ main(int argc, char *argv[])
       break;
     }
 
-  if(sscanf(qpb_parse("KL class"), "%s", aux_string)!=1)
-    {
-      error("error parsing for %s\n",
-	    "KL class");
-      exit(QPB_PARSER_ERROR);
-    }
-
-  enum qpb_kl_classes kl_class;
-  if(strcmp(aux_string, "11") == 0)
-    kl_class = KL_CLASS_11;
-  else
-    {
-      error("%s: option currently supports: ", "KL class");
-      error("%s\n", "11");
-      exit(QPB_PARSER_ERROR);
-    }
-
   int kl_iters;
   if(sscanf(qpb_parse("KL iters"), "%d", &kl_iters)!=1)
     {
@@ -285,22 +268,23 @@ main(int argc, char *argv[])
       exit(QPB_PARSER_ERROR);
     }
 
-  /* Inner multi-shift CG (sign function) parameters. NOTE: the
-     stopping criterion is on the *squared* relative residual. Since
-     Lanczos relies on H being Hermitian, a tight value is advisable */
-  qpb_double epsilon;
-  if(sscanf(qpb_parse("Solver epsilon"), "%lf", &epsilon)!=1)
+  /* Multi-shift CG (MSCG) parameters, for the inner solves that
+     evaluate the sign function. NOTE: the MSCG stopping criterion is on
+     the *squared* relative residual. Since Lanczos relies on H being
+     Hermitian, a tight value is advisable */
+  qpb_double ms_epsilon;
+  if(sscanf(qpb_parse("Inner solver epsilon"), "%lf", &ms_epsilon)!=1)
     {
       error("error parsing for %s\n",
-	    "Solver epsilon");
+	    "Inner solver epsilon");
       exit(QPB_PARSER_ERROR);
     }
 
-  int max_iters;
-  if(sscanf(qpb_parse("Solver max iters"), "%d", &max_iters)!=1)
+  int ms_max_iters;
+  if(sscanf(qpb_parse("Inner solver max iters"), "%d", &ms_max_iters)!=1)
     {
       error("error parsing for %s\n",
-	    "Solver max iters");
+	    "Inner solver max iters");
       exit(QPB_PARSER_ERROR);
     }
 
@@ -399,8 +383,8 @@ main(int argc, char *argv[])
   print(" mass = %g\n", mass);
   print(" Clover param = %g\n", c_sw);
   print(" BC in time = %g\n", timebc);
-  print(" Solver epsilon = %e\n", epsilon);
-  print(" Max solver iters = %d\n", max_iters);
+  print(" Inner solver epsilon = %e\n", ms_epsilon);
+  print(" Inner solver max iters = %d\n", ms_max_iters);
   print(" Lanczos epsilon = %e\n", lanczos_epsilon);
   print(" Max Lanczos iters = %d\n", lanczos_max_iters);
   switch(which_dslash_op)
@@ -412,7 +396,6 @@ main(int argc, char *argv[])
       print(" Dslash operator is Standard\n");
       break;
     }
-  print(" KL class = %d\n", 11);
   print(" KL iters = %d\n", kl_iters);
   print(" Mu = %.3f\n", scaling_factor);
 
@@ -491,8 +474,8 @@ main(int argc, char *argv[])
       break;
     }
 
-  qpb_overlap_kl_pfrac_init(solver_arg_links, clover_term, kl_class, kl_iters, \
-                          rho, c_sw, mass, scaling_factor, epsilon, max_iters);
+  qpb_overlap_kl_pfrac_init(solver_arg_links, clover_term, KL_CLASS_11, kl_iters, \
+                          rho, c_sw, mass, scaling_factor, ms_epsilon, ms_max_iters);
 
   /* Lanczos vectors */
   qpb_spinor_field r = qpb_spinor_field_init();
