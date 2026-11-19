@@ -496,9 +496,9 @@ main(int argc, char *argv[])
   qpb_spinor_xdotx(&r_norm, r);
   qpb_double beta_prev = sqrt(r_norm);
 
-  qpb_double lambda_min = 0, lambda_max = 0;
-  qpb_double lambda_min0 = 0, lambda_max0 = 0;
-  qpb_double dlambda_min = 1, dlambda_max = 1;
+  qpb_double lambda_min_squared = 0, lambda_max_squared = 0;
+  qpb_double lambda_min_squared0 = 0, lambda_max_squared0 = 0;
+  qpb_double dlambda_min_squared = 1, dlambda_max_squared = 1;
   int converged = 0;
   int n = 0; /* dimension of the Krylov space built so far */
 
@@ -533,18 +533,22 @@ main(int argc, char *argv[])
 
       /* Ritz values of the (k+1)x(k+1) tridiagonal matrix */
       tridiag_eigenv(eig, alpha, beta, n);
-      lambda_min = eig[0];
-      lambda_max = eig[n-1];
+      lambda_min_squared = eig[0];
+      lambda_max_squared = eig[n-1];
 
       if(k > 0)
 	{
-	  dlambda_min = fabs(lambda_min - lambda_min0) / fabs(lambda_min);
-	  dlambda_max = fabs(lambda_max - lambda_max0) / fabs(lambda_max);
-	  print(" Lanczos iter = %5d, lambda_min = %e (change = %e), "
-		"lambda_max = %e (change = %e), target = %e\n",
-		n, lambda_min, dlambda_min, lambda_max, dlambda_max,
+	  dlambda_min_squared = fabs(lambda_min_squared - lambda_min_squared0)
+	    / fabs(lambda_min_squared);
+	  dlambda_max_squared = fabs(lambda_max_squared - lambda_max_squared0)
+	    / fabs(lambda_max_squared);
+	  print(" Lanczos iter = %5d, lambda_min_squared = %e (change = %e), "
+		"lambda_max_squared = %e (change = %e), target = %e\n",
+		n, lambda_min_squared, dlambda_min_squared,
+		lambda_max_squared, dlambda_max_squared,
 		lanczos_epsilon);
-	  if(dlambda_min < lanczos_epsilon && dlambda_max < lanczos_epsilon)
+	  if(dlambda_min_squared < lanczos_epsilon &&
+	     dlambda_max_squared < lanczos_epsilon)
 	    {
 	      converged = 1;
 	      break;
@@ -559,8 +563,8 @@ main(int argc, char *argv[])
 	  break;
 	}
 
-      lambda_min0 = lambda_min;
-      lambda_max0 = lambda_max;
+      lambda_min_squared0 = lambda_min_squared;
+      lambda_max_squared0 = lambda_max_squared;
     }
   t = qpb_stop_watch(t);
 
@@ -573,15 +577,18 @@ main(int argc, char *argv[])
     {
       error(" !\n");
       error(" Lanczos *did not* converge after %d iters, t = %g sec\n", n, t);
-      error(" changes: lambda_min = %e, lambda_max = %e, target = %e\n",
-	    dlambda_min, dlambda_max, lanczos_epsilon);
+      error(" relative changes: lambda_min_squared = %e, "
+	    "lambda_max_squared = %e, target = %e\n",
+	    dlambda_min_squared, dlambda_max_squared, lanczos_epsilon);
       error(" !\n");
     }
   print(" Extreme eigenvalues of H^2 = (g5 Dov,m)^2, "
 	"with exact overlap bounds [m^2, 4 rho^2]:\n");
-  print(" lambda_min = %+.12e   (m^2     = %.12e)\n", lambda_min, mass*mass);
-  print(" lambda_max = %+.12e   (4 rho^2 = %.12e)\n", lambda_max, 4*rho*rho);
-  print(" Condition number = %e\n", lambda_max/lambda_min);
+  print(" lambda_min_squared = %+.12e   (m^2     = %.12e)\n",
+	lambda_min_squared, mass*mass);
+  print(" lambda_max_squared = %+.12e   (4 rho^2 = %.12e)\n",
+	lambda_max_squared, 4*rho*rho);
+  print(" Condition number = %e\n", lambda_max_squared/lambda_min_squared);
 
   free(alpha);
   free(beta);
