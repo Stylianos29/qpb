@@ -290,23 +290,23 @@ main(int argc, char *argv[])
 
   /* Lanczos parameters */
   qpb_double lanczos_epsilon;
-  if(sscanf(qpb_parse("Lanczos epsilon"), "%lf", &lanczos_epsilon)!=1)
+  if(sscanf(qpb_parse("Eigensolver epsilon"), "%lf", &lanczos_epsilon)!=1)
     {
       error("error parsing for %s\n",
-	    "Lanczos epsilon");
+	    "Eigensolver epsilon");
       exit(QPB_PARSER_ERROR);
     }
 
   int lanczos_max_iters;
-  if(sscanf(qpb_parse("Lanczos max iters"), "%d", &lanczos_max_iters)!=1)
+  if(sscanf(qpb_parse("Eigensolver max iters"), "%d", &lanczos_max_iters)!=1)
     {
       error("error parsing for %s\n",
-	    "Lanczos max iters");
+	    "Eigensolver max iters");
       exit(QPB_PARSER_ERROR);
     }
   if(lanczos_max_iters<2)
     {
-      error("Lanczos max iters should be at least 2, quiting\n");
+      error("Eigensolver max iters should be at least 2, quiting\n");
       exit(QPB_PARAMETERS_ERROR);
     }
 
@@ -385,8 +385,8 @@ main(int argc, char *argv[])
   print(" BC in time = %g\n", timebc);
   print(" Inner solver epsilon = %e\n", ms_epsilon);
   print(" Inner solver max iters = %d\n", ms_max_iters);
-  print(" Lanczos epsilon = %e\n", lanczos_epsilon);
-  print(" Max Lanczos iters = %d\n", lanczos_max_iters);
+  print(" Eigensolver epsilon = %e\n", lanczos_epsilon);
+  print(" Eigensolver max iters = %d\n", lanczos_max_iters);
   switch(which_dslash_op)
     {
     case QPB_DSLASH_BRILLOUIN:
