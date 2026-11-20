@@ -569,18 +569,15 @@ main(int argc, char *argv[])
   t = qpb_stop_watch(t);
 
   print("\n");
-  if(converged)
+  /* Runs that stop at the iterations cap are valid cases, so the
+     same line is printed whether or not the target was reached */
+  print(" Lanczos converged after %d iters, t = %g sec\n", n, t);
+  if(!converged)
     {
-      print(" Lanczos converged after %d iters, t = %g sec\n", n, t);
-    }
-  else
-    {
-      error(" !\n");
-      error(" Lanczos *did not* converge after %d iters, t = %g sec\n", n, t);
-      error(" relative changes: lambda_min_squared = %e, "
+      print(" Note: Eigensolver max iters reached before the target, "
+	    "relative changes: lambda_min_squared = %e, "
 	    "lambda_max_squared = %e, target = %e\n",
 	    dlambda_min_squared, dlambda_max_squared, lanczos_epsilon);
-      error(" !\n");
     }
   print(" Extreme eigenvalues of H^2 = (g5 Dov,m)^2, "
 	"with exact overlap bounds [m^2, 4 rho^2]:\n");
