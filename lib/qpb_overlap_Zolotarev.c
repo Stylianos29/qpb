@@ -183,10 +183,12 @@ qpb_extreme_eigenvalues_of_X_squared(qpb_double *min_eigv, \
   qpb_lanczos(a, b, solver_arg_links, clover_term, kappa, c_sw, 1);
   qpb_double lambda = 0, dlambda, lambda0 = 1e3;
   int i=0;
+  int n_eig=0; /* number of Ritz values in eig[] from the last tridiag_eigenv() */
   for(i=1; i<max_iters; i++)
   {
     qpb_lanczos(a, b, solver_arg_links, clover_term, kappa, c_sw, -1);
     tridiag_eigenv(eig, a, b, i+1);
+    n_eig = i+1;
 
     lambda = eig[i] / eig[0];
     dlambda = fabs(lambda - lambda0) / fabs(lambda + lambda0);
@@ -199,7 +201,9 @@ qpb_extreme_eigenvalues_of_X_squared(qpb_double *min_eigv, \
   }
 
   *min_eigv = (qpb_double) eig[0];
-  *max_eigv = (qpb_double) eig[i-1];
+  /* The largest Ritz value is the last one of the last tridiagonal matrix,
+     whether the loop stopped on convergence or at max_iters */
+  *max_eigv = (qpb_double) eig[n_eig-1];
 
   return i;
 }
