@@ -42,6 +42,7 @@ mainprogs/overlap-kl-pfrac/sign-squared-values/sign-squared-values
 mainprogs/overlap-kl-pfrac/sign-squared-violation/sign-squared-violation
 
 mainprogs/overlap-Neuberger/invert/invert
+mainprogs/overlap-Zolotarev/eigens/eigens
 mainprogs/overlap-Zolotarev/mesons/mesons
 mainprogs/overlap-Neuberger/sign-squared-violation/sign-squared-violation
 
