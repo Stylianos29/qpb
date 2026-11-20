@@ -384,7 +384,7 @@ main(int argc, char *argv[])
   print(" Clover param = %g\n", c_sw);
   print(" BC in time = %g\n", timebc);
   print(" Inner solver epsilon = %e\n", ms_epsilon);
-  print(" Inner solver max iters = %d\n", ms_max_iters);
+  print(" Inner max solver iters = %d\n", ms_max_iters);
   print(" Eigensolver epsilon = %e\n", lanczos_epsilon);
   print(" Eigensolver max iters = %d\n", lanczos_max_iters);
   switch(which_dslash_op)
