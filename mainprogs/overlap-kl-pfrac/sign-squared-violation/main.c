@@ -536,29 +536,12 @@ main(int argc, char *argv[])
 
   print("\n");
   print(" Done, %d vectors in t = %f sec\n", n_vec, t);
-
-  /* deflation diagnostics: read before finalize releases them */
-  int defl_k;
-  qpb_double defl_sqrt_theta_kp1, defl_build_time;
-  qpb_overlap_kl_pfrac_get_deflation_info(&defl_k, &defl_sqrt_theta_kp1,
-                                          &defl_build_time);
-  long mscg_iters = qpb_overlap_kl_pfrac_get_mscg_iters();
   qpb_overlap_kl_pfrac_finalize();
 
   print(" GW Diffs (per stochastic source):\n");
   for(int i=0; i<n_vec; i++)
     print(" %4d %.25e\n", i, diffs[i]);
   free(diffs);
-
-  /* two forward sign-function applications per vector */
-  if(defl_target_on)
-    {
-      print(" Deflation summary: k = %d, sqrt(theta_{k+1}) = %e, "
-	    "build time = %g s, mean MSCG iters per sign = %g, "
-	    "sign-loop time = %g s\n",
-	    defl_k, defl_sqrt_theta_kp1, defl_build_time,
-	    (qpb_double)mscg_iters/(2.0*n_vec), t);
-    }
 
   for(int i=0; i<4; i++)
     qpb_spinor_field_finalize(temp_vecs[i]);

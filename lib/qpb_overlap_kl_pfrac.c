@@ -170,11 +170,6 @@ static int              defl_target_set    = 0;
 static qpb_double       defl_lambda_target = 0.;  /* in |X| units */
 static int              defl_k_max         = 0;   /* cap on k     */
 
-/* Reported through the getters at the end of the file. */
-static qpb_double       defl_sqrt_theta_kp1 = 0.;  /* last build's sqrt(theta_{k+1}) */
-static qpb_double       defl_build_time     = 0.;  /* last build's wall time (s)     */
-static long             mscg_iters_outer    = 0;   /* MSCG iters at LEVEL_OUTER      */
-
 
 INLINE void
 D_op(qpb_spinor_field y, qpb_spinor_field x)
@@ -640,8 +635,6 @@ build_deflation_subspace(qpb_double Lanczos_epsilon, int Lanczos_max_iters)
   defl_built = 1;
 
   tb = qpb_stop_watch(tb);
-  defl_sqrt_theta_kp1 = sqrt(theta_kp1);
-  defl_build_time     = tb;
   print(" Deflation: kernel applications for subspace build = %d\n", kapps);
   print(" Deflation: subspace ready (k=%d, m=%d), build t = %g secs\n", k, m, tb);
 
@@ -812,7 +805,6 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover,
 
   /* MSCG workspace sized for the larger of the KL orders. */
   qpb_mscongrad_init(kl_order[LEVEL_OUTER]);
-  mscg_iters_outer = 0;
 }
 
 
@@ -898,12 +890,9 @@ apply_gamma5_sign(overlap_level_t lvl,
   qpb_double kernel_mass  = ov_params.m_bare;
   qpb_double kernel_kappa = 1.0 / (2*kernel_mass + 8.0);
 
-  int ms_iters =
   qpb_mscongrad(yMS, rhs, ov_params.gauge_ptr, ov_params.clover, kernel_kappa,
                 n, shifts[lvl], ov_params.c_sw,
                 MS_solver_precision[lvl], MS_maximum_solver_iterations);
-  if(lvl == LEVEL_OUTER)   /* -1 = not converged, i.e. ran to the cap */
-    mscg_iters_outer += (ms_iters < 0) ? MS_maximum_solver_iterations : ms_iters;
 
   /* ---- (b) rational part on the (deflated) RHS:  sum = R(X^2) rhs ---- */
   qpb_spinor_ax(sum, (qpb_complex){constant_term[lvl], 0.}, rhs);
@@ -1247,25 +1236,4 @@ qpb_bicgstab_overlap_kl_pfrac(qpb_spinor_field x, qpb_spinor_field b,
         "relative = %e, t = %g sec\n",
         iters, res_norm, res_norm / b_norm, t);
   return iters;
-}
-
-
-/* Diagnostics, valid between init and finalize. */
-long
-qpb_overlap_kl_pfrac_get_mscg_iters(void)
-{
-  /* total MSCG iterations at LEVEL_OUTER (the forward sign function) */
-  return mscg_iters_outer;
-}
-
-
-void
-qpb_overlap_kl_pfrac_get_deflation_info(int *k, qpb_double *sqrt_theta_kp1,
-                                        qpb_double *build_time)
-{
-  /* k of the deflation subspace, sqrt(theta_{k+1}) and the build wall time;
-     all zero when no build ran (QPB_DEFL_K = 0 and no target set) */
-  *k              = defl_built ? defl_k : 0;
-  *sqrt_theta_kp1 = defl_built ? defl_sqrt_theta_kp1 : 0.;
-  *build_time     = defl_built ? defl_build_time : 0.;
 }

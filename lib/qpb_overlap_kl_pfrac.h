@@ -18,12 +18,6 @@ void qpb_overlap_kl_pfrac_finalize();
 void qpb_overlap_kl_pfrac_set_deflation_target(qpb_double /*lambda_target*/,
                                                int /*k_max*/);
 
-/* Diagnostics, valid between init and finalize. */
-long qpb_overlap_kl_pfrac_get_mscg_iters(void);
-void qpb_overlap_kl_pfrac_get_deflation_info(int * /*k*/,
-                                             qpb_double * /*sqrt_theta_kp1*/,
-                                             qpb_double * /*build_time*/);
-
 void qpb_gamma5_sign_function_of_X_pfrac(qpb_spinor_field, qpb_spinor_field);
 void qpb_overlap_kl_pfrac(qpb_spinor_field, qpb_spinor_field);
 void qpb_gamma5_overlap_kl_pfrac(qpb_spinor_field, qpb_spinor_field);
