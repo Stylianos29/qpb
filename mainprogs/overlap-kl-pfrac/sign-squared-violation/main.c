@@ -303,6 +303,34 @@ main(int argc, char *argv[])
       exit(QPB_PARSER_ERROR);
     }
 
+  /* Optional: choose the deflation k from a spectral target instead of the
+     compile-time QPB_DEFL_K -- the smallest k with sqrt(theta_{k+1}) >= target
+     (|X| units), capped at k_max.  Both keys absent => behaviour unchanged. */
+  int defl_target_on = 0;
+  qpb_double defl_lambda_target = 0.1;
+  int defl_k_max = 64;
+  char *opt_value;
+  if((opt_value = qpb_parse_optional("Deflation lambda target")) != NULL)
+    {
+      defl_target_on = 1;
+      if(sscanf(opt_value, "%lf", &defl_lambda_target)!=1)
+	{
+	  error("error parsing for %s\n",
+		"Deflation lambda target");
+	  exit(QPB_PARSER_ERROR);
+	}
+    }
+  if((opt_value = qpb_parse_optional("Deflation k max")) != NULL)
+    {
+      defl_target_on = 1;
+      if(sscanf(opt_value, "%d", &defl_k_max)!=1)
+	{
+	  error("error parsing for %s\n",
+		"Deflation k max");
+	  exit(QPB_PARSER_ERROR);
+	}
+    }
+
   qpb_finalize_parser();
 
   /* initialize cartesian grid and index tables */
@@ -358,6 +386,11 @@ main(int argc, char *argv[])
   print(" Max solver iters = %d\n", max_iters);
   print(" Lanczos epsilon = %e\n", Lanczos_epsilon);
   print(" Lanczos max iters = %d\n", Lanczos_max_iters);
+  if(defl_target_on)
+    {
+      print(" Deflation lambda target = %g\n", defl_lambda_target);
+      print(" Deflation k max = %d\n", defl_k_max);
+    }
   switch(which_dslash_op)
     {
     case QPB_DSLASH_BRILLOUIN:
@@ -466,6 +499,8 @@ main(int argc, char *argv[])
      evaluates the partial fraction.  This program only applies sign(X) forward,
      never the preconditioned inverter, so the preconditioner is switched off
      (prec_max_iter = 0) and its tolerances are inert. */
+  if(defl_target_on)
+    qpb_overlap_kl_pfrac_set_deflation_target(defl_lambda_target, defl_k_max);
   qpb_overlap_kl_pfrac_init(solver_arg_links, clover_term, kl_class, kl_iters,
                           rho, c_sw, mass, scaling_factor,
                           epsilon, epsilon, max_iters,
@@ -501,12 +536,29 @@ main(int argc, char *argv[])
 
   print("\n");
   print(" Done, %d vectors in t = %f sec\n", n_vec, t);
+
+  /* deflation diagnostics: read before finalize releases them */
+  int defl_k;
+  qpb_double defl_sqrt_theta_kp1, defl_build_time;
+  qpb_overlap_kl_pfrac_get_deflation_info(&defl_k, &defl_sqrt_theta_kp1,
+                                          &defl_build_time);
+  long mscg_iters = qpb_overlap_kl_pfrac_get_mscg_iters();
   qpb_overlap_kl_pfrac_finalize();
 
   print(" GW Diffs (per stochastic source):\n");
   for(int i=0; i<n_vec; i++)
     print(" %4d %.25e\n", i, diffs[i]);
   free(diffs);
+
+  /* two forward sign-function applications per vector */
+  if(defl_target_on)
+    {
+      print(" Deflation summary: k = %d, sqrt(theta_{k+1}) = %e, "
+	    "build time = %g s, mean MSCG iters per sign = %g, "
+	    "sign-loop time = %g s\n",
+	    defl_k, defl_sqrt_theta_kp1, defl_build_time,
+	    (qpb_double)mscg_iters/(2.0*n_vec), t);
+    }
 
   for(int i=0; i<4; i++)
     qpb_spinor_field_finalize(temp_vecs[i]);
