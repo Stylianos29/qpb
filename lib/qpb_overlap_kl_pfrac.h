@@ -12,6 +12,12 @@ void qpb_overlap_kl_pfrac_init(void *, qpb_clover_term, enum qpb_kl_classes,
      qpb_double /*Lanczos_epsilon*/, int /*Lanczos_max_iters*/);
 void qpb_overlap_kl_pfrac_finalize();
 
+/* Optional: call before init to choose k from the spectrum instead of the
+   compile-time QPB_DEFL_K (smallest k with sqrt(theta_{k+1}) >= lambda_target,
+   capped at k_max; lambda_target in |X| units). */
+void qpb_overlap_kl_pfrac_set_deflation_target(qpb_double /*lambda_target*/,
+                                               int /*k_max*/);
+
 void qpb_gamma5_sign_function_of_X_pfrac(qpb_spinor_field, qpb_spinor_field);
 void qpb_overlap_kl_pfrac(qpb_spinor_field, qpb_spinor_field);
 void qpb_gamma5_overlap_kl_pfrac(qpb_spinor_field, qpb_spinor_field);
