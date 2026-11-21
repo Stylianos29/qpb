@@ -501,13 +501,15 @@ main(int argc, char *argv[])
      (prec_max_iter = 0) and its tolerances are inert. */
   if(defl_target_on)
     qpb_overlap_kl_pfrac_set_deflation_target(defl_lambda_target, defl_k_max);
+  qpb_double t = qpb_stop_watch(0);
   qpb_overlap_kl_pfrac_init(solver_arg_links, clover_term, kl_class, kl_iters,
                           rho, c_sw, mass, scaling_factor,
                           epsilon, epsilon, max_iters,
                           epsilon, 0,
                           Lanczos_epsilon, Lanczos_max_iters);
-
-  qpb_double t = qpb_stop_watch(0);
+  qpb_double t_overhead = qpb_stop_watch(t);
+  print(" Total overhead time: %f sec\n", t_overhead);
+  
   for(int i=0; i<n_vec; i++)
   {
     print("\n");
