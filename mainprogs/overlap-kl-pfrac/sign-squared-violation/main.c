@@ -295,12 +295,18 @@ main(int argc, char *argv[])
       exit(QPB_PARSER_ERROR);
     }
 
-  int Lanczos_max_iters;
-  if(sscanf(qpb_parse("Lanczos max iters"), "%d", &Lanczos_max_iters)!=1)
+  int Lanczos_max_vectors;
+  if(sscanf(qpb_parse("Lanczos max vectors"), "%d", &Lanczos_max_vectors)!=1)
     {
       error("error parsing for %s\n",
-	    "Lanczos max iters");
+	    "Lanczos max vectors");
       exit(QPB_PARSER_ERROR);
+    }
+  if(Lanczos_max_vectors < 2 || Lanczos_max_vectors > QPB_KL_DEFL_MAX_VECTORS)
+    {
+      error("Lanczos max vectors = %d out of range [2, %d], quiting\n",
+	    Lanczos_max_vectors, QPB_KL_DEFL_MAX_VECTORS);
+      exit(QPB_PARAMETERS_ERROR);
     }
 
   /* Optional: choose the deflation k from a spectral target instead of the
@@ -328,6 +334,17 @@ main(int argc, char *argv[])
 	  error("error parsing for %s\n",
 		"Deflation k max");
 	  exit(QPB_PARSER_ERROR);
+	}
+    }
+  if(defl_target_on)
+    {
+      /* validates both values against their hard maxima; stops on error */
+      qpb_overlap_kl_pfrac_set_deflation_target(defl_lambda_target, defl_k_max);
+      if(Lanczos_max_vectors < defl_k_max+1)
+	{
+	  error("Lanczos max vectors = %d must be at least Deflation k max + 1"
+		" = %d, quiting\n", Lanczos_max_vectors, defl_k_max+1);
+	  exit(QPB_PARAMETERS_ERROR);
 	}
     }
 
@@ -385,7 +402,7 @@ main(int argc, char *argv[])
   print(" Solver epsilon = %e\n", epsilon);
   print(" Max solver iters = %d\n", max_iters);
   print(" Lanczos epsilon = %e\n", Lanczos_epsilon);
-  print(" Lanczos max iters = %d\n", Lanczos_max_iters);
+  print(" Lanczos max vectors = %d\n", Lanczos_max_vectors);
   if(defl_target_on)
     {
       print(" Deflation lambda target = %g\n", defl_lambda_target);
@@ -499,14 +516,12 @@ main(int argc, char *argv[])
      evaluates the partial fraction.  This program only applies sign(X) forward,
      never the preconditioned inverter, so the preconditioner is switched off
      (prec_max_iter = 0) and its tolerances are inert. */
-  if(defl_target_on)
-    qpb_overlap_kl_pfrac_set_deflation_target(defl_lambda_target, defl_k_max);
   qpb_double t = qpb_stop_watch(0);
   qpb_overlap_kl_pfrac_init(solver_arg_links, clover_term, kl_class, kl_iters,
                           rho, c_sw, mass, scaling_factor,
                           epsilon, epsilon, max_iters,
                           epsilon, 0,
-                          Lanczos_epsilon, Lanczos_max_iters);
+                          Lanczos_epsilon, Lanczos_max_vectors);
   qpb_double t_overhead = qpb_stop_watch(t);
   print(" Total overhead time: %f sec\n", t_overhead);
   

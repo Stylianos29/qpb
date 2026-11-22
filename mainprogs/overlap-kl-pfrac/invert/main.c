@@ -615,12 +615,18 @@ main(int argc, char *argv[])
 	    "Lanczos epsilon");
       exit(QPB_PARSER_ERROR);
     }
-  int Lanczos_max_iters;
-  if(sscanf(qpb_parse("Lanczos max iters"), "%d", &Lanczos_max_iters)!=1)
+  int Lanczos_max_vectors;
+  if(sscanf(qpb_parse("Lanczos max vectors"), "%d", &Lanczos_max_vectors)!=1)
     {
       error("error parsing for %s\n",
-	    "Lanczos max iters");
+	    "Lanczos max vectors");
       exit(QPB_PARSER_ERROR);
+    }
+  if(Lanczos_max_vectors < 2 || Lanczos_max_vectors > QPB_KL_DEFL_MAX_VECTORS)
+    {
+      error("Lanczos max vectors = %d out of range [2, %d], quiting\n",
+	    Lanczos_max_vectors, QPB_KL_DEFL_MAX_VECTORS);
+      exit(QPB_PARAMETERS_ERROR);
     }
 
   int use_preconditioning;
@@ -833,7 +839,7 @@ main(int argc, char *argv[])
   print(" Inner solver epsilon = %e\n", ms_epsilon);
   print(" Inner max solver iters = %d\n", ms_max_iters);
   print(" Lanczos epsilon = %e\n", Lanczos_epsilon);
-  print(" Lanczos max iters = %d\n", Lanczos_max_iters);
+  print(" Lanczos max vectors = %d\n", Lanczos_max_vectors);
   if(use_preconditioning) {
     print(" Preconditioning = yes\n");
     print(" Preconditioner solver epsilon = %e\n", prec_epsilon);
@@ -1046,7 +1052,7 @@ main(int argc, char *argv[])
                   rho, c_sw, mass, scaling_factor,
                   ms_epsilon, prec_ms_epsilon, ms_max_iters,
                   prec_epsilon, prec_max_iter,
-                  Lanczos_epsilon, Lanczos_max_iters);
+                  Lanczos_epsilon, Lanczos_max_vectors);
 
   for(int i=0; i<n_spinors; i++)
   {

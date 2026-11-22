@@ -295,12 +295,18 @@ main(int argc, char *argv[])
       exit(QPB_PARSER_ERROR);
     }
 
-  int Lanczos_max_iters;
-  if(sscanf(qpb_parse("Lanczos max iters"), "%d", &Lanczos_max_iters)!=1)
+  int Lanczos_max_vectors;
+  if(sscanf(qpb_parse("Lanczos max vectors"), "%d", &Lanczos_max_vectors)!=1)
     {
       error("error parsing for %s\n",
-	    "Lanczos max iters");
+	    "Lanczos max vectors");
       exit(QPB_PARSER_ERROR);
+    }
+  if(Lanczos_max_vectors < 2 || Lanczos_max_vectors > QPB_KL_DEFL_MAX_VECTORS)
+    {
+      error("Lanczos max vectors = %d out of range [2, %d], quiting\n",
+	    Lanczos_max_vectors, QPB_KL_DEFL_MAX_VECTORS);
+      exit(QPB_PARAMETERS_ERROR);
     }
 
   qpb_finalize_parser();
@@ -357,7 +363,7 @@ main(int argc, char *argv[])
   print(" Solver epsilon = %e\n", epsilon);
   print(" Max solver iters = %d\n", max_iters);
   print(" Lanczos epsilon = %e\n", Lanczos_epsilon);
-  print(" Lanczos max iters = %d\n", Lanczos_max_iters);
+  print(" Lanczos max vectors = %d\n", Lanczos_max_vectors);
   switch(which_dslash_op)
     {
     case QPB_DSLASH_BRILLOUIN:
@@ -470,7 +476,7 @@ main(int argc, char *argv[])
                           rho, c_sw, mass, scaling_factor,
                           epsilon, epsilon, max_iters,
                           epsilon, 0,
-                          Lanczos_epsilon, Lanczos_max_iters);
+                          Lanczos_epsilon, Lanczos_max_vectors);
 
   qpb_double t = qpb_stop_watch(0);
 
