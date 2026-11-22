@@ -25,6 +25,12 @@ void qpb_overlap_kl_pfrac_finalize();
 void qpb_overlap_kl_pfrac_set_deflation_target(qpb_double /*lambda_target*/,
                                                int /*k_max*/);
 
+/* Optional: call before init to switch deflation off entirely -- no Lanczos
+   build, no extra memory, plain sign function -- whatever QPB_DEFL_K is.
+   Cannot be combined with a deflation target.  Lasts for one init/finalize
+   cycle. */
+void qpb_overlap_kl_pfrac_disable_deflation(void);
+
 void qpb_gamma5_sign_function_of_X_pfrac(qpb_spinor_field, qpb_spinor_field);
 void qpb_overlap_kl_pfrac(qpb_spinor_field, qpb_spinor_field);
 void qpb_gamma5_overlap_kl_pfrac(qpb_spinor_field, qpb_spinor_field);

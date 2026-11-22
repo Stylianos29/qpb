@@ -174,6 +174,9 @@ static int              defl_target_set    = 0;
 static qpb_double       defl_lambda_target = 0.;  /* in |X| units */
 static int              defl_k_max         = 0;   /* cap on k     */
 
+/* Deflation switched off entirely (qpb_overlap_kl_pfrac_disable_deflation). */
+static int              defl_disabled      = 0;
+
 
 INLINE void
 D_op(qpb_spinor_field y, qpb_spinor_field x)
@@ -283,9 +286,31 @@ qpb_overlap_kl_pfrac_set_deflation_target(qpb_double lambda_target, int k_max)
 	    k_max, QPB_KL_DEFL_MAX_K);
       exit(QPB_PARAMETERS_ERROR);
     }
+  if(defl_disabled)
+    {
+      error("Deflation target requested while deflation is switched off, quiting\n");
+      exit(QPB_PARAMETERS_ERROR);
+    }
   defl_target_set    = 1;
   defl_lambda_target = lambda_target;
   defl_k_max         = k_max;
+}
+
+
+void
+qpb_overlap_kl_pfrac_disable_deflation(void)
+{
+  if(ov_params.initialized == QPB_OVERLAP_INITIALIZED)
+    {
+      error("%s: must be called before qpb_overlap_kl_pfrac_init()\n", __func__);
+      exit(QPB_PARAMETERS_ERROR);
+    }
+  if(defl_target_set)
+    {
+      error("Deflation switched off while a deflation target is set, quiting\n");
+      exit(QPB_PARAMETERS_ERROR);
+    }
+  defl_disabled = 1;
 }
 
 
@@ -806,8 +831,9 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover,
      Reused by apply_gamma5_sign() at every level (they share X).  Disabled at
      compile time with -DQPB_DEFL_K=0, which reproduces the plain path, unless
      a spectral target was set (then k comes from the target instead).
+     qpb_overlap_kl_pfrac_disable_deflation() skips the build in every case.
      The Lanczos dimension is chosen by the convergence test, not prescribed. */
-  if(QPB_DEFL_K > 0 || defl_target_set)
+  if(!defl_disabled && (QPB_DEFL_K > 0 || defl_target_set))
   {
     int Lanczos_iters = build_deflation_subspace(Lanczos_epsilon,
                                                  Lanczos_max_vectors);
@@ -851,7 +877,8 @@ qpb_overlap_kl_pfrac_finalize(void)
     defl_built = 0;
     defl_k = 0;
   }
-  defl_target_set = 0;   /* the target applies to one init/finalize cycle */
+  defl_target_set = 0;   /* target and switch apply to one init/finalize cycle */
+  defl_disabled   = 0;
 }
 
 
