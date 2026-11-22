@@ -336,6 +336,37 @@ main(int argc, char *argv[])
 	  exit(QPB_PARSER_ERROR);
 	}
     }
+  /* Optional: "Deflation = off" skips the low-mode deflation build entirely
+     (whatever QPB_DEFL_K is); "on" or no key keeps the default behaviour.
+     Contradicts the target keys. */
+  int defl_off = 0;
+  char *defl_switch = qpb_parse_optional("Deflation");
+  if(defl_switch != NULL)
+    {
+      char defl_word[QPB_MAX_STRING];
+      if(sscanf(defl_switch, "%s", defl_word)!=1)
+	{
+	  error("error parsing for %s\n", "Deflation");
+	  exit(QPB_PARSER_ERROR);
+	}
+      if(strcmp(defl_word, "off") == 0)
+	defl_off = 1;
+      else if(strcmp(defl_word, "on") != 0)
+	{
+	  error("%s: option should be one of: ", "Deflation");
+	  error("%s, ", "on");
+	  error("%s\n", "off");
+	  exit(QPB_PARSER_ERROR);
+	}
+    }
+  if(defl_off && defl_target_on)
+    {
+      error("Deflation = off contradicts the Deflation lambda target / "
+	    "Deflation k max keys, quiting\n");
+      exit(QPB_PARAMETERS_ERROR);
+    }
+  if(defl_off)
+    qpb_overlap_kl_pfrac_disable_deflation();
   if(defl_target_on)
     {
       /* validates both values against their hard maxima; stops on error */
@@ -403,6 +434,10 @@ main(int argc, char *argv[])
   print(" Max solver iters = %d\n", max_iters);
   print(" Lanczos epsilon = %e\n", Lanczos_epsilon);
   print(" Lanczos max vectors = %d\n", Lanczos_max_vectors);
+  if(defl_off)
+    {
+      print(" Deflation = off\n");
+    }
   if(defl_target_on)
     {
       print(" Deflation lambda target = %g\n", defl_lambda_target);
