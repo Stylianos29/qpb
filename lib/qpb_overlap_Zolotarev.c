@@ -124,7 +124,6 @@
 #define QPB_DEFL_SHRINK_INTERVAL 1  /* 1: Zolotarev range = [theta_{k+1}, lambda_max^2]
                                        0: legacy range    = [theta_1,     lambda_max^2] */
 #endif
-#define QPB_DEFL_KMAX (QPB_DEFL_K > 0 ? QPB_DEFL_K : 1)
 
 typedef qpb_complex_double cdbl;
 
@@ -171,8 +170,11 @@ static int          prec_on;                 /* resolved once at init          *
 static int          second_layer_on;         /* resolved once at init          */
 
 /* Sign-function deflation subspace (built once per configuration). */
-static qpb_spinor_field defl_V[QPB_DEFL_KMAX];                  /* low eigvecs of X^2 */
-static cdbl             defl_signW[QPB_DEFL_KMAX*QPB_DEFL_KMAX]; /* sign(V^dag X V)   */
+/* Heap-allocated with the final k once the build knows it (NULL while k = 0). */
+static qpb_spinor_field *defl_V     = NULL;  /* [k]   low eigvecs of X^2         */
+static cdbl             *defl_signW = NULL;  /* [k*k] sign(V^dag X V)            */
+static cdbl             *defl_a     = NULL;  /* [k]   apply scratch: a = V^dag x */
+static cdbl             *defl_b     = NULL;  /* [k]   apply scratch: b = sign(W) a */
 static int              defl_k = 0;          /* usable modes (0 => disabled) */
 static int              defl_built = 0;      /* has V been built for this config? */
 
@@ -627,6 +629,14 @@ build_deflation_subspace(qpb_double Lanczos_epsilon,
   if(theta_kp1_out) *theta_kp1_out = theta_kp1;
   if(theta_max_out) *theta_max_out = theta_max;
 
+  if(k > 0)
+    {
+      defl_V     = qpb_alloc(sizeof(qpb_spinor_field)*k);
+      defl_signW = qpb_alloc(sizeof(cdbl)*k*k);
+      defl_a     = qpb_alloc(sizeof(cdbl)*k);
+      defl_b     = qpb_alloc(sizeof(cdbl)*k);
+    }
+
   /* lift the k lowest Ritz vectors:  V_c = sum_i evec[i][c] v_i */
   for(int c=0; c<k; c++)
     {
@@ -986,6 +996,10 @@ qpb_overlap_Zolotarev_finalize()
   {
     for(int i=0; i<defl_k; i++)
       qpb_spinor_field_finalize(defl_V[i]);
+    free(defl_V);     defl_V     = NULL;
+    free(defl_signW); defl_signW = NULL;
+    free(defl_a);     defl_a     = NULL;
+    free(defl_b);     defl_b     = NULL;
     defl_built = 0;
     defl_k = 0;
   }
@@ -1020,7 +1034,7 @@ apply_gamma5_sign(overlap_level_t lvl, qpb_spinor_field y, qpb_spinor_field x)
     if(k > 0)
     {
       qpb_spinor_field rhs = ov_temp_vecs[26];
-      cdbl a[QPB_DEFL_KMAX];
+      cdbl *a = defl_a;
       for(int i=0; i<k; i++)
         qpb_spinor_xdoty(&a[i], defl_V[i], x);
       qpb_spinor_xeqy(rhs, x);
@@ -1030,7 +1044,7 @@ apply_gamma5_sign(overlap_level_t lvl, qpb_spinor_field y, qpb_spinor_field x)
       D_op(y, rhs);                                  /* (D-ρ) P_high x        */
       qpb_spinor_ax(y, (qpb_complex){c0, 0.}, y);    /* c0 (D-ρ) P_high x     */
 
-      cdbl b[QPB_DEFL_KMAX];
+      cdbl *b = defl_b;
       for(int i=0; i<k; i++)
       {
         cdbl s = {0., 0.};
@@ -1072,7 +1086,7 @@ apply_gamma5_sign(overlap_level_t lvl, qpb_spinor_field y, qpb_spinor_field x)
   }
 
   /* ---- (a) deflate the right-hand side:  a = V^dag x ; rhs = x - V a ---- */
-  cdbl a[QPB_DEFL_KMAX];
+  cdbl *a = defl_a;
   if(k > 0)
   {
     for(int i=0; i<k; i++)
@@ -1102,7 +1116,7 @@ apply_gamma5_sign(overlap_level_t lvl, qpb_spinor_field y, qpb_spinor_field x)
   /* ---- (c) exact low-mode part:  y += γ5 V sign(W) a ---- */
   if(k > 0)
   {
-    cdbl b[QPB_DEFL_KMAX];
+    cdbl *b = defl_b;
     for(int i=0; i<k; i++)
     {
       cdbl s = {0., 0.};
