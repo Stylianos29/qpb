@@ -13,6 +13,7 @@
 #include <qpb_stop_watch.h>
 #include <qpb_kl_defs.h>
 #include <qpb_mscongrad.h>
+#include <qpb_overlap_kl_pfrac.h>
 #include <math.h>
 #include <stdlib.h>
 
@@ -100,7 +101,11 @@
  *
  *  Runtime controls (from the input file, via qpb_overlap_kl_pfrac_init):
  *      Lanczos_epsilon   : Ritz-value convergence target for the build.
- *      Lanczos_max_iters : cap on the Lanczos dimension m.
+ *      Lanczos_max_vectors : cap on the Lanczos dimension m, i.e. on the number
+ *                            of Lanczos vectors held in memory (full
+ *                            re-orthogonalization keeps them all).  Must lie in
+ *                            [max(k_max+1, 2), QPB_KL_DEFL_MAX_VECTORS], or the
+ *                            program stops.
  *
  *  Optional spectral target (qpb_overlap_kl_pfrac_set_deflation_target, called
  *  before init; overrides QPB_DEFL_K):  k is the smallest number of modes with
@@ -110,15 +115,14 @@
  *  the same lower edge gives (nearly) the same convergence across an ensemble.
  *
  *  Compile-time controls (override e.g. with -DQPB_DEFL_K=0 for the baseline):
- *      QPB_DEFL_K     : number of low modes carried in V (0 disables deflation).
- *      QPB_DEFL_M_MAX : HARD memory safety cap on m, applied on top of
- *                       Lanczos_max_iters.  NOT the stopping criterion.
+ *      QPB_DEFL_K     : number of low modes carried in V (0 disables deflation),
+ *                       at most QPB_KL_DEFL_MAX_K.
  * ========================================================================= */
 #ifndef QPB_DEFL_K
 #define QPB_DEFL_K 20
 #endif
-#ifndef QPB_DEFL_M_MAX
-#define QPB_DEFL_M_MAX 256
+#if QPB_DEFL_K > QPB_KL_DEFL_MAX_K
+#error "QPB_DEFL_K exceeds QPB_KL_DEFL_MAX_K"
 #endif
 
 typedef qpb_complex_double cdbl;
@@ -267,10 +271,16 @@ qpb_overlap_kl_pfrac_set_deflation_target(qpb_double lambda_target, int k_max)
       error("%s: must be called before qpb_overlap_kl_pfrac_init()\n", __func__);
       exit(QPB_PARAMETERS_ERROR);
     }
-  if(lambda_target < 0. || k_max < 0)
+  if(lambda_target < 0. || lambda_target > QPB_KL_DEFL_MAX_LAMBDA)
     {
-      error("%s: need lambda_target >= 0 and k_max >= 0, got %e, %d\n",
-	    __func__, lambda_target, k_max);
+      error("Deflation lambda target = %g out of range [0, %g], quiting\n",
+	    lambda_target, QPB_KL_DEFL_MAX_LAMBDA);
+      exit(QPB_PARAMETERS_ERROR);
+    }
+  if(k_max < 0 || k_max > QPB_KL_DEFL_MAX_K)
+    {
+      error("Deflation k max = %d out of range [0, %d], quiting\n",
+	    k_max, QPB_KL_DEFL_MAX_K);
       exit(QPB_PARAMETERS_ERROR);
     }
   defl_target_set    = 1;
@@ -283,8 +293,7 @@ qpb_overlap_kl_pfrac_set_deflation_target(qpb_double lambda_target, int k_max)
  *  Lanczos on A = X^2 with full re-orthogonalization, iterating until the k+1
  *  lowest Ritz values AND lambda_max are converged to Lanczos_epsilon -- the
  *  SAME criterion the Zolotarev module uses.  The Lanczos dimension m is an
- *  outcome, not an input; Lanczos_max_iters (further clamped by the compile-
- *  time QPB_DEFL_M_MAX) is only a safety net.
+ *  outcome, not an input; Lanczos_max_vectors is only a safety net.
  *
  *  The k lowest Ritz vectors are lifted and orthonormalized into V; W = V^dag X V
  *  and sign(W) = Q sign(Theta) Q^dag follow.  theta_{k+1} -- the smallest
@@ -301,7 +310,7 @@ qpb_overlap_kl_pfrac_set_deflation_target(qpb_double lambda_target, int k_max)
  *  Returns: the converged Lanczos dimension m.
  * ------------------------------------------------------------------------- */
 static int
-build_deflation_subspace(qpb_double Lanczos_epsilon, int Lanczos_max_iters)
+build_deflation_subspace(qpb_double Lanczos_epsilon, int Lanczos_max_vectors)
 {
   int target = defl_target_set;
   int kcap = target ? defl_k_max : QPB_DEFL_K;   /* most modes ever kept */
@@ -309,13 +318,16 @@ build_deflation_subspace(qpb_double Lanczos_epsilon, int Lanczos_max_iters)
   if(!target && k <= 0)
     return 0;
 
-  int mmax = Lanczos_max_iters;
-  if(mmax > QPB_DEFL_M_MAX)
-    mmax = QPB_DEFL_M_MAX;      /* hard memory safety cap */
-  if(mmax < kcap+1)
-    mmax = kcap+1;              /* need at least k+1 Ritz values */
-  if(mmax < 2)
-    mmax = 2;                   /* convergence test compares two steps */
+  /* m_max: at least k+1 Ritz values, and two steps for the convergence test;
+     at most the hard memory cap.  Out of range is an error, never clamped. */
+  int mmax = Lanczos_max_vectors;
+  int mmin = (kcap+1 > 2) ? kcap+1 : 2;
+  if(mmax < mmin || mmax > QPB_KL_DEFL_MAX_VECTORS)
+    {
+      error("Lanczos max vectors = %d out of range [%d, %d], quiting\n",
+	    mmax, mmin, QPB_KL_DEFL_MAX_VECTORS);
+      exit(QPB_PARAMETERS_ERROR);
+    }
 
   if(target)
     {
@@ -662,7 +674,7 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover,
           qpb_double c_sw, qpb_double mass, qpb_double scaling_factor,
           qpb_double ms_epsilon, qpb_double prec_ms_epsilon, int ms_max_iters,
           qpb_double prec_epsilon, int prec_max_iter,
-          qpb_double Lanczos_epsilon, int Lanczos_max_iters)
+          qpb_double Lanczos_epsilon, int Lanczos_max_vectors)
 {
   if(ov_params.initialized == QPB_OVERLAP_INITIALIZED)
     return;
@@ -798,7 +810,7 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover,
   if(QPB_DEFL_K > 0 || defl_target_set)
   {
     int Lanczos_iters = build_deflation_subspace(Lanczos_epsilon,
-                                                 Lanczos_max_iters);
+                                                 Lanczos_max_vectors);
     print(" Total number of Lanczos algorithm iterations = %d\n",
           Lanczos_iters);
   }
