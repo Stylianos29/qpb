@@ -22,7 +22,7 @@ testprogs/source_rms/source_rms
 
 install/*
 
-mainprogs/*/*/run.sh
+run.sh
 mainprogs/*/*/test.txt
 mainprogs/*/*/test.err
 
@@ -58,3 +58,6 @@ mainprogs/overlap-Zolotarev/sign-squared-violation/sign-squared-violation
 **/runner/
 
 .vscode/settings.json
+
+# Not part of this repository
+mainprogs/twisted-mass-kl/
