@@ -313,6 +313,77 @@ main(int argc, char *argv[])
       exit(QPB_PARSER_ERROR);
     }
 
+  /* Optional: choose the deflation k from a spectral target instead of the
+     compile-time QPB_DEFL_K -- the smallest k with sqrt(theta_{k+1}) >= target
+     (|X| units), capped at k_max; the Zolotarev interval then starts at
+     theta_{k+1}.  Both keys absent => behaviour unchanged. */
+  int defl_target_on = 0;
+  qpb_double defl_lambda_target = 0.1;
+  int defl_k_max = 64;
+  char *opt_value;
+  if((opt_value = qpb_parse_optional("Deflation lambda target")) != NULL)
+    {
+      defl_target_on = 1;
+      if(sscanf(opt_value, "%lf", &defl_lambda_target)!=1)
+	{
+	  error("error parsing for %s\n",
+		"Deflation lambda target");
+	  exit(QPB_PARSER_ERROR);
+	}
+    }
+  if((opt_value = qpb_parse_optional("Deflation k max")) != NULL)
+    {
+      defl_target_on = 1;
+      if(sscanf(opt_value, "%d", &defl_k_max)!=1)
+	{
+	  error("error parsing for %s\n",
+		"Deflation k max");
+	  exit(QPB_PARSER_ERROR);
+	}
+    }
+  /* Optional: "Deflation = off" skips the low-mode deflation build entirely
+     (whatever QPB_DEFL_K is); the Zolotarev interval then comes from the plain
+     extreme-eigenvalue Lanczos.  "on" or no key keeps the default behaviour. */
+  int defl_off = 0;
+  char *defl_switch = qpb_parse_optional("Deflation");
+  if(defl_switch != NULL)
+    {
+      char defl_word[QPB_MAX_STRING];
+      if(sscanf(defl_switch, "%s", defl_word)!=1)
+	{
+	  error("error parsing for %s\n", "Deflation");
+	  exit(QPB_PARSER_ERROR);
+	}
+      if(strcmp(defl_word, "off") == 0)
+	defl_off = 1;
+      else if(strcmp(defl_word, "on") != 0)
+	{
+	  error("%s: option should be one of: ", "Deflation");
+	  error("%s, ", "on");
+	  error("%s\n", "off");
+	  exit(QPB_PARSER_ERROR);
+	}
+    }
+  if(defl_off && defl_target_on)
+    {
+      error("Deflation = off contradicts the Deflation lambda target / "
+	    "Deflation k max keys, quiting\n");
+      exit(QPB_PARAMETERS_ERROR);
+    }
+  if(defl_off)
+    qpb_overlap_Zolotarev_disable_deflation();
+  if(defl_target_on)
+    {
+      /* validates both values against their hard maxima; stops on error */
+      qpb_overlap_Zolotarev_set_deflation_target(defl_lambda_target, defl_k_max);
+      if(Lanczos_max_vectors < defl_k_max+1)
+	{
+	  error("Lanczos max vectors = %d must be at least Deflation k max + 1"
+		" = %d, quiting\n", Lanczos_max_vectors, defl_k_max+1);
+	  exit(QPB_PARAMETERS_ERROR);
+	}
+    }
+
   qpb_finalize_parser();
 
   /* initialize cartesian grid and index tables */
@@ -380,6 +451,15 @@ main(int argc, char *argv[])
   print(" Lanczos epsilon = %e\n", Lanczos_epsilon);
   print(" Max Lanczos iters = %d\n", Lanczos_max_iters);
   print(" Lanczos max vectors = %d\n", Lanczos_max_vectors);
+  if(defl_off)
+    {
+      print(" Deflation = off\n");
+    }
+  if(defl_target_on)
+    {
+      print(" Deflation lambda target = %g\n", defl_lambda_target);
+      print(" Deflation k max = %d\n", defl_k_max);
+    }
   print(" Min eigenvalue squared modification = %f\n", delta_min);
   print(" Max eigenvalue squared modification = %f\n", delta_max);
 
