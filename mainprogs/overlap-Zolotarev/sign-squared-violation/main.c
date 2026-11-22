@@ -284,6 +284,21 @@ main(int argc, char *argv[])
       exit(QPB_PARSER_ERROR);
     }
 
+  /* Deflation build: Lanczos vectors kept in memory (full re-orthogonalization) */
+  int Lanczos_max_vectors;
+  if(sscanf(qpb_parse("Lanczos max vectors"), "%d", &Lanczos_max_vectors)!=1)
+    {
+      error("error parsing for %s\n",
+	    "Lanczos max vectors");
+      exit(QPB_PARSER_ERROR);
+    }
+  if(Lanczos_max_vectors < 2 || Lanczos_max_vectors > QPB_ZOL_DEFL_MAX_VECTORS)
+    {
+      error("Lanczos max vectors = %d out of range [2, %d], quiting\n",
+	    Lanczos_max_vectors, QPB_ZOL_DEFL_MAX_VECTORS);
+      exit(QPB_PARAMETERS_ERROR);
+    }
+
   qpb_double delta_max;
   if(sscanf(qpb_parse("Max eigenvalue squared modification"), "%lf", &delta_max)!=1)
     {
@@ -364,6 +379,7 @@ main(int argc, char *argv[])
   print(" Mu = %.3f\n", scaling_factor);
   print(" Lanczos epsilon = %e\n", Lanczos_epsilon);
   print(" Max Lanczos iters = %d\n", Lanczos_max_iters);
+  print(" Lanczos max vectors = %d\n", Lanczos_max_vectors);
   print(" Min eigenvalue squared modification = %f\n", delta_min);
   print(" Max eigenvalue squared modification = %f\n", delta_max);
 
@@ -458,10 +474,17 @@ main(int argc, char *argv[])
   qpb_double *diffs;
   diffs = qpb_alloc(sizeof(qpb_double)*n_vec);
   
+  /* "Solver epsilon" / "Solver max iters" drive the inner multi-shift CG that
+     evaluates the partial fraction.  This program only applies sign(X) forward,
+     never the preconditioned inverter, so the preconditioner is switched off
+     (prec_max_iter = 0) and its tolerances are inert. */
   qpb_double t = qpb_stop_watch(0);
   qpb_overlap_Zolotarev_init(solver_arg_links, clover_term, Zol_order, \
-                          rho, c_sw, mass, scaling_factor, epsilon, max_iters, \
-                          Lanczos_epsilon, Lanczos_max_iters, delta_max, delta_min);
+                          rho, c_sw, mass, scaling_factor, \
+                          epsilon, epsilon, max_iters, \
+                          epsilon, 0, \
+                          Lanczos_epsilon, Lanczos_max_iters, \
+                          Lanczos_max_vectors, delta_max, delta_min);
   qpb_double t_overhead = qpb_stop_watch(t);
   print(" Total overhead time: %f sec\n", t_overhead);
 

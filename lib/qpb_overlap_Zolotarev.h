@@ -6,6 +6,7 @@
 
 /* Hard maxima for the deflation inputs.  A request above any of them is a
    parameter error that stops the program; it is never silently lowered. */
+#define QPB_ZOL_DEFL_MAX_VECTORS 1024 /* Lanczos vectors of the deflation build */
 #define QPB_ZOL_DEFL_MAX_K        64  /* k_max of the spectral target       */
 #define QPB_ZOL_DEFL_MAX_LAMBDA  0.5  /* lambda_target of the target (|X|)  */
 
@@ -14,6 +15,7 @@ void qpb_overlap_Zolotarev_init(void *, qpb_clover_term, int, qpb_double,
      qpb_double /*ms_epsilon*/, qpb_double /*prec_ms_epsilon*/, int /*ms_max_iter*/,
      qpb_double /*prec_epsilon*/, int /*prec_max_iter*/,
      qpb_double /*Lanczos_epsilon*/, int /*Lanczos_max_iters*/,
+     int /*Lanczos_max_vectors*/,
      qpb_double /*delta_max*/, qpb_double /*delta_min*/);
 int  qpb_bicgstab_overlap_Zolotarev(qpb_spinor_field, qpb_spinor_field, qpb_double, int);
 

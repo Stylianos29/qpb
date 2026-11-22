@@ -696,6 +696,21 @@ main(int argc, char *argv[])
       exit(QPB_PARSER_ERROR);
     }
 
+  /* Deflation build: Lanczos vectors kept in memory (full re-orthogonalization) */
+  int Lanczos_max_vectors;
+  if(sscanf(qpb_parse("Lanczos max vectors"), "%d", &Lanczos_max_vectors)!=1)
+    {
+      error("error parsing for %s\n",
+	    "Lanczos max vectors");
+      exit(QPB_PARSER_ERROR);
+    }
+  if(Lanczos_max_vectors < 2 || Lanczos_max_vectors > QPB_ZOL_DEFL_MAX_VECTORS)
+    {
+      error("Lanczos max vectors = %d out of range [2, %d], quiting\n",
+	    Lanczos_max_vectors, QPB_ZOL_DEFL_MAX_VECTORS);
+      exit(QPB_PARAMETERS_ERROR);
+    }
+
   qpb_double delta_max;
   if(sscanf(qpb_parse("Max eigenvalue squared modification"), "%lf", &delta_max)!=1)
     {
@@ -906,6 +921,7 @@ main(int argc, char *argv[])
     }
   print(" Min eigenvalue squared modification = %f\n", delta_min);
   print(" Max eigenvalue squared modification = %f\n", delta_max);
+  print(" Lanczos max vectors = %d\n", Lanczos_max_vectors);
   
   /* Shift it */
   qpb_gauge_field_shift(smearedgauge, shifts);
@@ -1051,7 +1067,8 @@ main(int argc, char *argv[])
                   rho, c_sw, mass, scaling_factor, \
                   ms_epsilon, prec_ms_epsilon, ms_max_iters, \
                   prec_epsilon, prec_max_iter, \
-                  Lanczos_epsilon, Lanczos_max_iters, delta_max, delta_min);
+                  Lanczos_epsilon, Lanczos_max_iters, \
+                  Lanczos_max_vectors, delta_max, delta_min);
   qpb_double t_overhead = qpb_stop_watch(t);
   print(" Total overhead time: %f sec\n", t_overhead);
 

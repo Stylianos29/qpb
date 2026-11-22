@@ -105,6 +105,15 @@
  *  supplies the extreme eigenvalues of X^2 for the Zolotarev interval, so the
  *  separate qpb_extreme_eigenvalues_of_X_squared() pass is skipped entirely.
  *
+ *  Runtime controls (via qpb_overlap_Zolotarev_init):
+ *      Lanczos_max_iters   : iteration cap of the plain extreme-eigenvalue
+ *                            Lanczos (deflation off); it stores no basis.
+ *      Lanczos_max_vectors : cap on the Lanczos dimension m of the deflation
+ *                            build, i.e. on the vectors held in memory (full
+ *                            re-orthogonalization keeps them all).  Must lie in
+ *                            [max(k_max+1, 2), QPB_ZOL_DEFL_MAX_VECTORS], or the
+ *                            program stops.
+ *
  *  Optional spectral target (qpb_overlap_Zolotarev_set_deflation_target, called
  *  before init; overrides QPB_DEFL_K):  k is the smallest number of modes with
  *  sqrt(theta_{k+1}) >= lambda_target, capped at k_max.  With the shrunk
@@ -117,7 +126,6 @@
  *  Compile-time controls (override e.g. with -DQPB_DEFL_K=0 for the baseline):
  *      QPB_DEFL_K : number of low modes carried in V (0 disables deflation),
  *          at most QPB_ZOL_DEFL_MAX_K.
- *      QPB_DEFL_M_MAX : cap on the Lanczos dimension of the deflation build.
  *      QPB_DEFL_SHRINK_INTERVAL : 1 (default) uses [theta_{k+1}, lambda_max^2]
  *          as the Zolotarev interval, since the low modes are handled exactly;
  *          0 keeps the legacy [theta_1, lambda_max^2].
@@ -127,10 +135,6 @@
 #endif
 #if QPB_DEFL_K > QPB_ZOL_DEFL_MAX_K
 #error "QPB_DEFL_K exceeds QPB_ZOL_DEFL_MAX_K"
-#endif
-#ifndef QPB_DEFL_M_MAX
-#define QPB_DEFL_M_MAX 256   /* HARD SAFETY CAP on the Lanczos dimension --
-                                NOT the stopping criterion (that is eps_Lanczos) */
 #endif
 #ifndef QPB_DEFL_SHRINK_INTERVAL
 #define QPB_DEFL_SHRINK_INTERVAL 1  /* 1: Zolotarev range = [theta_{k+1}, lambda_max^2]
@@ -528,8 +532,8 @@ qpb_overlap_Zolotarev_disable_deflation(void)
  *  Lanczos on A = X^2 with full re-orthogonalization, iterating until the
  *  k+1 lowest Ritz values AND lambda_max are converged to Lanczos_epsilon --
  *  the SAME criterion used by qpb_extreme_eigenvalues_of_X_squared(). The
- *  Lanczos dimension m is therefore an outcome, not an input; QPB_DEFL_M_MAX
- *  is only a memory safety net.
+ *  Lanczos dimension m is therefore an outcome, not an input;
+ *  Lanczos_max_vectors is only a memory safety net.
  *
  *  The k lowest Ritz vectors are lifted and orthonormalized into V; W = V^dag X V
  *  and sign(W) = Q sign(Theta) Q^dag follow. theta_{k+1} -- the smallest
@@ -547,7 +551,7 @@ qpb_overlap_Zolotarev_disable_deflation(void)
  *  Returns: the converged Lanczos dimension m.
  * ------------------------------------------------------------------------- */
 static int
-build_deflation_subspace(qpb_double Lanczos_epsilon,
+build_deflation_subspace(qpb_double Lanczos_epsilon, int Lanczos_max_vectors,
                          qpb_double *theta_1_out,
                          qpb_double *theta_kp1_out,
                          qpb_double *theta_max_out)
@@ -555,13 +559,19 @@ build_deflation_subspace(qpb_double Lanczos_epsilon,
   int target = defl_target_set;
   int kcap = target ? defl_k_max : QPB_DEFL_K;   /* most modes ever kept */
   int k    = target ? 0          : QPB_DEFL_K;   /* modes under test     */
-  int mmax = QPB_DEFL_M_MAX;
   if(!target && k <= 0)
     return 0;
-  if(mmax < kcap+1)
-    mmax = kcap+1;              /* need at least k+1 Ritz values */
-  if(mmax < 2)
-    mmax = 2;                   /* convergence test compares two steps */
+
+  /* m_max: at least k+1 Ritz values, and two steps for the convergence test;
+     at most the hard memory cap.  Out of range is an error, never clamped. */
+  int mmax = Lanczos_max_vectors;
+  int mmin = (kcap+1 > 2) ? kcap+1 : 2;
+  if(mmax < mmin || mmax > QPB_ZOL_DEFL_MAX_VECTORS)
+    {
+      error("Lanczos max vectors = %d out of range [%d, %d], quiting\n",
+	    mmax, mmin, QPB_ZOL_DEFL_MAX_VECTORS);
+      exit(QPB_PARAMETERS_ERROR);
+    }
 
   if(target)
     {
@@ -913,6 +923,7 @@ qpb_overlap_Zolotarev_init(void * gauge, qpb_clover_term clover, \
           qpb_double ms_epsilon, qpb_double prec_ms_epsilon, int ms_max_iter, \
           qpb_double prec_epsilon, int prec_max_iter, \
           qpb_double Lanczos_epsilon, int Lanczos_max_iters, \
+          int Lanczos_max_vectors, \
           qpb_double delta_max, qpb_double delta_min)
 {
   if(ov_params.initialized != QPB_OVERLAP_INITIALIZED)
@@ -996,6 +1007,7 @@ qpb_overlap_Zolotarev_init(void * gauge, qpb_clover_term clover, \
     {
       qpb_double theta_1, theta_kp1, theta_max;
       int Lanczos_iters = build_deflation_subspace(Lanczos_epsilon,
+                                Lanczos_max_vectors,
                                 &theta_1, &theta_kp1, &theta_max);
       print(" Total number of Lanczos algorithm iterations = %d\n",
                                                               Lanczos_iters);
