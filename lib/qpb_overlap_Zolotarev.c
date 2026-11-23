@@ -143,6 +143,10 @@
 
 typedef qpb_complex_double cdbl;
 
+/* Deflation warnings go to stderr AND stdout, so they show up in either log.
+   (print/error each expand to two statements, hence the do-while wrapper.) */
+#define DEFL_WARN(...) do { error(__VA_ARGS__); print(__VA_ARGS__); } while(0)
+
 
 typedef enum {
   LEVEL_OUTER = 0,                 /* Zolotarev order n   (massive overlap)     */
@@ -716,7 +720,7 @@ build_deflation_subspace(qpb_double Lanczos_epsilon, int Lanczos_max_vectors,
     }
 
   if(!converged)
-    error(" Deflation: WARNING -- Lanczos hit m_max = %d without reaching "
+    DEFL_WARN(" Deflation: WARNING -- Lanczos hit m_max = %d without reaching "
 	  "eps = %e; retained modes and theta_%d may be under-converged "
 	  "(unsafe if the shrunk Zolotarev interval is in use)\n",
 	  mmax, Lanczos_epsilon, k+1);
@@ -906,7 +910,7 @@ build_deflation_subspace(qpb_double Lanczos_epsilon, int Lanczos_max_vectors,
 	    defl_lambda_target, k, sqrt(theta_1), sqrt(theta_kp1), reached);
       if(!reached)
 	{
-	  error(" Deflation: WARNING -- lambda_target = %e NOT reached (k = %d, "
+	  DEFL_WARN(" Deflation: WARNING -- lambda_target = %e NOT reached (k = %d, "
 		"k_max = %d): sqrt(theta_{k+1}) = %e\n",
 		defl_lambda_target, k, kcap, sqrt(theta_kp1));
 	}
