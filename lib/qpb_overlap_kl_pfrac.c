@@ -181,6 +181,26 @@ static int              defl_k_max         = 0;   /* cap on k     */
 /* Deflation switched off entirely (qpb_overlap_kl_pfrac_disable_deflation). */
 static int              defl_disabled      = 0;
 
+/* Low-mode start of the L1 (preconditioner) BiCGStab
+   (qpb_overlap_kl_pfrac_set_lowmode_start).  With W = D_p U orthonormalized
+   as W = Q R and U' = U R^{-1} (so D_p U' = Q), each L1 call starts from the
+   minimal-residual guess over span(U):
+       x0 = U' (Q^dag b),     r0 = b - Q (Q^dag b),     ||r0|| <= ||b||.   */
+static int               lm_requested   = 0;     /* setter called?            */
+static int               lm_k_req       = 0;     /* modes asked for           */
+static qpb_double        lm_epsilon     = 0.;    /* Ritz-residual target      */
+static int               lm_max_vectors = 0;     /* Lanczos vectors in memory */
+static int               lm_k           = 0;     /* modes in use (0 => off)   */
+static qpb_spinor_field *lm_U = NULL;            /* [lm_k] U'                 */
+static qpb_spinor_field *lm_Q = NULL;            /* [lm_k] Q = D_p U'         */
+static cdbl             *lm_c = NULL;            /* [lm_k] scratch: Q^dag b   */
+static long              lm_calls = 0;           /* end-of-run summary of     */
+static qpb_double        lm_r_sum = 0.;          /*  ||r0||/||b|| over all    */
+static qpb_double        lm_r_min = 0.;          /*  L1 calls                 */
+static qpb_double        lm_r_max = 0.;
+
+static void build_lowmode_start(void);
+
 
 INLINE void
 D_op(qpb_spinor_field y, qpb_spinor_field x)
@@ -315,6 +335,40 @@ qpb_overlap_kl_pfrac_disable_deflation(void)
       exit(QPB_PARAMETERS_ERROR);
     }
   defl_disabled = 1;
+}
+
+
+void
+qpb_overlap_kl_pfrac_set_lowmode_start(int k, qpb_double Lanczos_epsilon,
+                                       int Lanczos_max_vectors)
+{
+  if(ov_params.initialized == QPB_OVERLAP_INITIALIZED)
+    {
+      error("%s: must be called before qpb_overlap_kl_pfrac_init()\n", __func__);
+      exit(QPB_PARAMETERS_ERROR);
+    }
+  if(k < 1 || k > QPB_KL_LM_MAX_K)
+    {
+      error("Low modes = %d out of range [1, %d], quiting\n",
+            k, QPB_KL_LM_MAX_K);
+      exit(QPB_PARAMETERS_ERROR);
+    }
+  if(Lanczos_epsilon <= 0.)
+    {
+      error("Low-mode Lanczos epsilon = %g must be positive, quiting\n",
+            Lanczos_epsilon);
+      exit(QPB_PARAMETERS_ERROR);
+    }
+  if(Lanczos_max_vectors < k+1 || Lanczos_max_vectors > QPB_KL_DEFL_MAX_VECTORS)
+    {
+      error("Low-mode Lanczos max vectors = %d out of range [%d, %d], quiting\n",
+            Lanczos_max_vectors, k+1, QPB_KL_DEFL_MAX_VECTORS);
+      exit(QPB_PARAMETERS_ERROR);
+    }
+  lm_requested   = 1;
+  lm_k_req       = k;
+  lm_epsilon     = Lanczos_epsilon;
+  lm_max_vectors = Lanczos_max_vectors;
 }
 
 
@@ -847,6 +901,19 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover,
 
   /* MSCG workspace sized for the larger of the KL orders. */
   qpb_mscongrad_init(kl_order[LEVEL_OUTER]);
+
+  /* Low-mode start of the L1 BiCGStab: needs the L1 operator (and the MSCG
+     workspace above), so it is built last. */
+  if(lm_requested)
+    {
+      if(prec_solver_max_iter == 0)
+        {
+          error("Low-mode start needs the preconditioner "
+                "(Preconditioning = yes), quiting\n");
+          exit(QPB_PARAMETERS_ERROR);
+        }
+      build_lowmode_start();
+    }
 }
 
 
@@ -883,6 +950,26 @@ qpb_overlap_kl_pfrac_finalize(void)
   }
   defl_target_set = 0;   /* target and switch apply to one init/finalize cycle */
   defl_disabled   = 0;
+
+  /* low-mode start: one end-of-run summary, then release */
+  if(lm_k > 0 && lm_calls > 0)
+    {
+      print(" Low-mode start: %ld L1 calls, ||r0||/||b|| mean = %e, "
+            "min = %e, max = %e\n", lm_calls, lm_r_sum/lm_calls,
+            lm_r_min, lm_r_max);
+    }
+  for(int i=0; i<lm_k; i++)
+    {
+      qpb_spinor_field_finalize(lm_U[i]);
+      qpb_spinor_field_finalize(lm_Q[i]);
+    }
+  if(lm_U) { free(lm_U); lm_U = NULL; }
+  if(lm_Q) { free(lm_Q); lm_Q = NULL; }
+  if(lm_c) { free(lm_c); lm_c = NULL; }
+  lm_k = 0;
+  lm_requested = 0;      /* also lasts for one init/finalize cycle */
+  lm_calls = 0;
+  lm_r_sum = lm_r_min = lm_r_max = 0.;
 }
 
 
@@ -1009,6 +1096,250 @@ void qpb_conjugate_overlap_kl_pfrac(qpb_spinor_field y, qpb_spinor_field x)
                                    { apply_conj_overlap(LEVEL_OUTER, y, x); }
 
 
+/* ------------------- LOW-MODE START OF THE L1 BiCGStab ------------------- *
+ *  D_p is the L1 operator: the overlap at order kl_iters-1, at the solve mass,
+ *  with the sign-function deflation (if any) exactly as the L1 sees it.
+ *
+ *  1. Lanczos with full re-orthogonalization on H = D_p^dag D_p, stopped when
+ *     the Ritz-residual bound beta_m |S_{m,i}| of the k lowest pairs is below
+ *     Lanczos_epsilon (or at Lanczos_max_vectors, with a warning).  The k
+ *     lowest Ritz vectors form U.
+ *  2. W = D_p U, and an explicit check ||D_p^dag D_p u - lambda^2 u|| per mode.
+ *  3. Modified Gram-Schmidt (twice) on W, applying the same operations to U:
+ *     W -> Q orthonormal, U -> U' with D_p U' = Q.  A column whose norm
+ *     collapses (dependent W) is dropped.
+ *
+ *  During the build the L1 MSCG runs at the OUTER MSCG precision: same
+ *  rational function, solved accurately, so that the Lanczos sees a linear
+ *  Hermitian H.  The loose L1 MSCG precision is restored afterwards; the L1
+ *  calls then use Q and U' as plain vectors (no operator applications).
+ * ------------------------------------------------------------------------- */
+static void
+build_lowmode_start(void)
+{
+  int k = lm_k_req, mmax = lm_max_vectors;
+  qpb_double eps = lm_epsilon;
+  qpb_double t0 = qpb_stop_watch(0);
+
+  qpb_double ms_prec_saved = MS_solver_precision[LEVEL_PREC];
+  MS_solver_precision[LEVEL_PREC] = MS_solver_precision[LEVEL_OUTER];
+
+  print(" Low-mode start: Lanczos on D^dag D at KL order %d "
+        "(%d modes, eps = %e, max vectors = %d)...\n",
+        kl_order[LEVEL_PREC], k, eps, mmax);
+
+  qpb_spinor_field *lv = qpb_alloc(sizeof(qpb_spinor_field)*mmax);
+  int n_alloc = 0;
+  qpb_spinor_field hv = qpb_spinor_field_init();
+  qpb_spinor_field t1 = qpb_spinor_field_init();
+  qpb_double *alpha = qpb_alloc(sizeof(qpb_double)*mmax);
+  qpb_double *beta  = qpb_alloc(sizeof(qpb_double)*mmax);
+
+  lv[0] = qpb_spinor_field_init();
+  n_alloc = 1;
+  qpb_spinor_field_set_random(lv[0]);
+  qpb_double nrm;
+  qpb_spinor_xdotx(&nrm, lv[0]);
+  qpb_spinor_ax(lv[0], (qpb_complex){1./sqrt(nrm), 0.}, lv[0]);
+
+  int m = 0, converged = 0;
+  for(int j=0; j<mmax; j++)
+    {
+      apply_overlap(LEVEL_PREC, t1, lv[j]);          /* t1 = D_p v_j        */
+      apply_conj_overlap(LEVEL_PREC, hv, t1);        /* hv = D_p^dag D_p v_j */
+      if(j > 0)
+        qpb_spinor_axpy(hv, (qpb_complex){-beta[j-1], 0.}, lv[j-1], hv);
+      qpb_complex_double a;
+      qpb_spinor_xdoty(&a, lv[j], hv);
+      alpha[j] = a.re;
+      qpb_spinor_axpy(hv, (qpb_complex){-alpha[j], 0.}, lv[j], hv);
+
+      for(int pass=0; pass<2; pass++)                /* full re-orth, twice */
+        for(int i=0; i<=j; i++)
+          {
+            qpb_complex_double c;
+            qpb_spinor_xdoty(&c, lv[i], hv);
+            qpb_spinor_axpy(hv, (qpb_complex){-c.re, -c.im}, lv[i], hv);
+          }
+
+      qpb_double bb;
+      qpb_spinor_xdotx(&bb, hv);
+      beta[j] = sqrt(bb);
+      m = j+1;
+
+      /* Ritz-residual test, every step up to m = 100, then every 10 */
+      if(m >= k+1 && (m <= 100 || m % 10 == 0))
+        {
+          gsl_matrix *T = gsl_matrix_calloc(m, m);
+          for(int i=0; i<m; i++)
+            gsl_matrix_set(T, i, i, alpha[i]);
+          for(int i=0; i<m-1; i++)
+            {
+              gsl_matrix_set(T, i, i+1, beta[i]);
+              gsl_matrix_set(T, i+1, i, beta[i]);
+            }
+          gsl_vector *ev = gsl_vector_alloc(m);
+          gsl_matrix *S  = gsl_matrix_alloc(m, m);
+          gsl_eigen_symmv_workspace *ws = gsl_eigen_symmv_alloc(m);
+          gsl_eigen_symmv(T, ev, S, ws);
+          gsl_eigen_symmv_sort(ev, S, GSL_EIGEN_SORT_VAL_ASC);
+          gsl_eigen_symmv_free(ws);
+
+          qpb_double rmax = 0.;
+          for(int i=0; i<k; i++)
+            {
+              qpb_double r = beta[j]*fabs(gsl_matrix_get(S, m-1, i));
+              if(r > rmax) rmax = r;
+            }
+          if(m % 20 == 0)
+            {
+              print("   m = %4d, lambda^2_1 = %e, lambda^2_%d = %e, "
+                    "max Ritz residual = %e (target = %e)\n",
+                    m, gsl_vector_get(ev, 0), k, gsl_vector_get(ev, k-1),
+                    rmax, eps);
+            }
+          gsl_matrix_free(T);
+          gsl_vector_free(ev);
+          gsl_matrix_free(S);
+          if(rmax < eps)
+            {
+              converged = 1;
+              break;
+            }
+        }
+
+      if(j < mmax-1)
+        {
+          lv[j+1] = qpb_spinor_field_init();
+          n_alloc = j+2;
+          if(beta[j] < 1e-12)
+            {
+              /* invariant subspace: restart with a fresh random vector,
+                 orthogonalized against the basis */
+              qpb_spinor_field_set_random(lv[j+1]);
+              for(int pass=0; pass<2; pass++)
+                for(int i=0; i<=j; i++)
+                  {
+                    qpb_complex_double c;
+                    qpb_spinor_xdoty(&c, lv[i], lv[j+1]);
+                    qpb_spinor_axpy(lv[j+1], (qpb_complex){-c.re, -c.im},
+                                    lv[i], lv[j+1]);
+                  }
+              qpb_double nn;
+              qpb_spinor_xdotx(&nn, lv[j+1]);
+              qpb_spinor_ax(lv[j+1], (qpb_complex){1./sqrt(nn), 0.}, lv[j+1]);
+              beta[j] = 0.;
+            }
+          else
+            qpb_spinor_ax(lv[j+1], (qpb_complex){1./beta[j], 0.}, hv);
+        }
+    }
+
+  if(!converged)
+    DEFL_WARN(" Low-mode start: WARNING -- Lanczos hit max vectors = %d "
+              "without reaching eps = %e; the modes may be under-converged\n",
+              mmax, eps);
+
+  /* lift the k lowest Ritz vectors into U */
+  gsl_matrix *T = gsl_matrix_calloc(m, m);
+  for(int i=0; i<m; i++)
+    gsl_matrix_set(T, i, i, alpha[i]);
+  for(int i=0; i<m-1; i++)
+    {
+      gsl_matrix_set(T, i, i+1, beta[i]);
+      gsl_matrix_set(T, i+1, i, beta[i]);
+    }
+  gsl_vector *ev = gsl_vector_alloc(m);
+  gsl_matrix *S  = gsl_matrix_alloc(m, m);
+  gsl_eigen_symmv_workspace *ws = gsl_eigen_symmv_alloc(m);
+  gsl_eigen_symmv(T, ev, S, ws);
+  gsl_eigen_symmv_sort(ev, S, GSL_EIGEN_SORT_VAL_ASC);
+  gsl_eigen_symmv_free(ws);
+
+  qpb_spinor_field *U = qpb_alloc(sizeof(qpb_spinor_field)*k);
+  qpb_spinor_field *W = qpb_alloc(sizeof(qpb_spinor_field)*k);
+  for(int c=0; c<k; c++)
+    {
+      U[c] = qpb_spinor_field_init();
+      qpb_spinor_field_set_zero(U[c]);
+      for(int i=0; i<m; i++)
+        qpb_spinor_axpy(U[c], (qpb_complex){gsl_matrix_get(S, i, c), 0.},
+                        lv[i], U[c]);
+    }
+  gsl_matrix_free(T);
+  gsl_vector_free(ev);
+  gsl_matrix_free(S);
+  for(int i=0; i<n_alloc; i++)
+    qpb_spinor_field_finalize(lv[i]);
+  free(lv);
+  free(alpha);
+  free(beta);
+
+  /* W = D_p U, with an explicit check of each mode */
+  for(int c=0; c<k; c++)
+    {
+      qpb_double un;
+      qpb_spinor_xdotx(&un, U[c]);
+      qpb_spinor_ax(U[c], (qpb_complex){1./sqrt(un), 0.}, U[c]);
+      W[c] = qpb_spinor_field_init();
+      apply_overlap(LEVEL_PREC, W[c], U[c]);          /* w = D_p u          */
+      apply_conj_overlap(LEVEL_PREC, hv, W[c]);       /* hv = D_p^dag D_p u */
+      qpb_double lam2;
+      qpb_spinor_xdotx(&lam2, W[c]);                  /* <u, D^dag D u>     */
+      qpb_spinor_axpy(hv, (qpb_complex){-lam2, 0.}, U[c], hv);
+      qpb_double rr;
+      qpb_spinor_xdotx(&rr, hv);
+      print(" Low-mode start, mode %2d: lambda^2 = %.12e, "
+            "||D^dag D u - lambda^2 u|| = %e\n", c, lam2, sqrt(rr));
+    }
+  qpb_spinor_field_finalize(hv);
+  qpb_spinor_field_finalize(t1);
+
+  /* MGS (twice) on W, mirrored on U:  W -> Q,  U -> U',  D_p U' = Q */
+  lm_U = qpb_alloc(sizeof(qpb_spinor_field)*k);
+  lm_Q = qpb_alloc(sizeof(qpb_spinor_field)*k);
+  int kept = 0;
+  for(int c=0; c<k; c++)
+    {
+      qpb_double n0;
+      qpb_spinor_xdotx(&n0, W[c]);
+      for(int pass=0; pass<2; pass++)
+        for(int i=0; i<kept; i++)
+          {
+            qpb_complex_double z;
+            qpb_spinor_xdoty(&z, lm_Q[i], W[c]);
+            qpb_spinor_axpy(W[c], (qpb_complex){-z.re, -z.im}, lm_Q[i], W[c]);
+            qpb_spinor_axpy(U[c], (qpb_complex){-z.re, -z.im}, lm_U[i], U[c]);
+          }
+      qpb_double n1;
+      qpb_spinor_xdotx(&n1, W[c]);
+      if(n1 <= 1e-20*n0)
+        {
+          DEFL_WARN(" Low-mode start: WARNING -- mode %d dropped "
+                    "(D u linearly dependent on the others)\n", c);
+          qpb_spinor_field_finalize(U[c]);
+          qpb_spinor_field_finalize(W[c]);
+          continue;
+        }
+      qpb_complex s = {1./sqrt(n1), 0.};
+      qpb_spinor_ax(W[c], s, W[c]);
+      qpb_spinor_ax(U[c], s, U[c]);
+      lm_Q[kept] = W[c];
+      lm_U[kept] = U[c];
+      kept++;
+    }
+  free(U);
+  free(W);
+  lm_k = kept;
+  lm_c = qpb_alloc(sizeof(cdbl)*(kept > 0 ? kept : 1));
+
+  MS_solver_precision[LEVEL_PREC] = ms_prec_saved;
+  t0 = qpb_stop_watch(t0);
+  print(" Low-mode start: ready (k = %d, m = %d), setup t = %g sec\n",
+        lm_k, m, t0);
+}
+
+
 static int
 preconditioner_bicgstab_2(qpb_spinor_field x, qpb_spinor_field b)
 {
@@ -1109,11 +1440,31 @@ preconditioner_bicgstab(qpb_spinor_field x, qpb_spinor_field b)
   qpb_spinor_field_set_zero(u);
 
   qpb_spinor_xeqy(r, b);            /* r0 = b - D_ov^prec·x0 = b */
+
+  /* Low-mode start: x0 = U' (Q^dag b), r0 = b - Q (Q^dag b), since D_p U' = Q.
+     Plain vector work, no operator application. */
+  if(lm_k > 0) {
+    for(int i = 0; i < lm_k; i++)
+      qpb_spinor_xdoty(&lm_c[i], lm_Q[i], b);
+    for(int i = 0; i < lm_k; i++) {
+      qpb_spinor_axpy(x, (qpb_complex){ lm_c[i].re,  lm_c[i].im}, lm_U[i], x);
+      qpb_spinor_axpy(r, (qpb_complex){-lm_c[i].re, -lm_c[i].im}, lm_Q[i], r);
+    }
+  }
+
   qpb_spinor_xeqy(r0_hat, r);
 
   qpb_spinor_xdotx(&res_norm, r);
   gamma.re = res_norm; gamma.im = 0.;
   rho = gamma;
+
+  if(lm_k > 0) {
+    qpb_double ratio = sqrt(res_norm / b_norm);
+    if(lm_calls == 0 || ratio < lm_r_min) lm_r_min = ratio;
+    if(lm_calls == 0 || ratio > lm_r_max) lm_r_max = ratio;
+    lm_r_sum += ratio;
+    lm_calls++;
+  }
 
   for(iters = 1; iters < prec_solver_max_iter; iters++) {
     if(res_norm / b_norm <= prec_solver_epsilon) {
