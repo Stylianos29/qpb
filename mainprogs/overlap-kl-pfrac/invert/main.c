@@ -738,6 +738,60 @@ main(int argc, char *argv[])
   if(defl_off)
     qpb_overlap_kl_pfrac_disable_deflation();
 
+  /* Optional: "Low-mode start = on" starts every preconditioner (L1) BiCGStab
+     from the minimal-residual guess over the lowest modes of D^dag D at the
+     preconditioner's KL order; "off" or no key keeps the plain zero start. */
+  int lm_on = 0;
+  int lm_modes = 0;
+  qpb_double lm_epsilon = 0.;
+  int lm_max_vectors = 0;
+  char *lm_switch = qpb_parse_optional("Low-mode start");
+  if(lm_switch != NULL)
+    {
+      char lm_word[QPB_MAX_STRING];
+      if(sscanf(lm_switch, "%s", lm_word)!=1)
+	{
+	  error("error parsing for %s\n", "Low-mode start");
+	  exit(QPB_PARSER_ERROR);
+	}
+      if(strcmp(lm_word, "on") == 0)
+	lm_on = 1;
+      else if(strcmp(lm_word, "off") != 0)
+	{
+	  error("%s: option should be one of: ", "Low-mode start");
+	  error("%s, ", "on");
+	  error("%s\n", "off");
+	  exit(QPB_PARSER_ERROR);
+	}
+    }
+  if(lm_on)
+    {
+      if(!use_preconditioning)
+	{
+	  error("Low-mode start = on needs Preconditioning = yes, quiting\n");
+	  exit(QPB_PARAMETERS_ERROR);
+	}
+      if(sscanf(qpb_parse("Low modes"), "%d", &lm_modes)!=1)
+	{
+	  error("error parsing for %s\n", "Low modes");
+	  exit(QPB_PARSER_ERROR);
+	}
+      if(sscanf(qpb_parse("Low-mode Lanczos epsilon"), "%lf", &lm_epsilon)!=1)
+	{
+	  error("error parsing for %s\n", "Low-mode Lanczos epsilon");
+	  exit(QPB_PARSER_ERROR);
+	}
+      if(sscanf(qpb_parse("Low-mode Lanczos max vectors"), "%d",
+		&lm_max_vectors)!=1)
+	{
+	  error("error parsing for %s\n", "Low-mode Lanczos max vectors");
+	  exit(QPB_PARSER_ERROR);
+	}
+      /* range checks (stop, never clamp) live in the library setter */
+      qpb_overlap_kl_pfrac_set_lowmode_start(lm_modes, lm_epsilon,
+					     lm_max_vectors);
+    }
+
   qpb_finalize_parser();
 
   /* initialize cartesian grid and index tables */
@@ -874,6 +928,12 @@ main(int argc, char *argv[])
     print(" Preconditioner solver epsilon = %e\n", prec_epsilon);
     print(" Preconditioner MSCG epsilon = %e\n", prec_ms_epsilon);
     print(" Preconditioner max iters = %d\n", prec_max_iter);
+    if(lm_on) {
+      print(" Low-mode start = on\n");
+      print(" Low modes = %d\n", lm_modes);
+      print(" Low-mode Lanczos epsilon = %e\n", lm_epsilon);
+      print(" Low-mode Lanczos max vectors = %d\n", lm_max_vectors);
+    }
   } else {
     print(" Preconditioning = no\n");
   }
