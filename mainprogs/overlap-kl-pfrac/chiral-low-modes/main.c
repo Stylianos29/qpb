@@ -856,8 +856,12 @@ main(int argc, char *argv[])
   qpb_spinor_field *u = qpb_alloc(sizeof(qpb_spinor_field)*chiral_modes);
   qpb_spinor_field *G = qpb_alloc(sizeof(qpb_spinor_field)*chiral_modes);
   qpb_double *mu = qpb_alloc(sizeof(qpb_double)*chiral_modes);
-  qpb_spinor_field t1 = qpb_spinor_field_init();
-  qpb_spinor_field t2 = qpb_spinor_field_init();
+  qpb_spinor_field t1  = qpb_spinor_field_init();
+  qpb_spinor_field t2  = qpb_spinor_field_init();
+  qpb_spinor_field S1  = qpb_spinor_field_init();
+  qpb_spinor_field S2  = qpb_spinor_field_init();
+  qpb_spinor_field Du  = qpb_spinor_field_init();
+  qpb_spinor_field DDu = qpb_spinor_field_init();
 
   for(int sec=0; sec<2; sec++)
     {
@@ -884,6 +888,37 @@ main(int argc, char *argv[])
 		"||A u - mu u|| = %e\n", sc, c, 1.+z.re, sqrt(rr));
 	}
 
+      /* ---- 3. mass checks:  D = a + b g5 s,  D^dag = a + b s g5 ----
+	 With G = g5 s u, S1 = s g5 u and S2 = s g5 G (two sign applications
+	 per mode), every am is plain vector arithmetic:
+	   D u       = a u + b G
+	   D^dag D u = a D u + b (a S1 + b S2)                                */
+      for(int c=0; c<chiral_modes; c++)
+	{
+	  qpb_spinor_gamma5(t1, u[c]);
+	  apply_sign(S1, t1);                              /* S1 = s g5 u */
+	  qpb_spinor_gamma5(t1, G[c]);
+	  apply_sign(S2, t1);                              /* S2 = s g5 G */
+	  for(int im=0; im<n_masses; im++)
+	    {
+	      qpb_double a = rho + 0.5*masses[im];
+	      qpb_double b = rho - 0.5*masses[im];
+	      qpb_spinor_axpby(Du, (qpb_complex){a, 0.}, u[c],
+			       (qpb_complex){b, 0.}, G[c]);       /* D u */
+	      qpb_spinor_axpby(DDu, (qpb_complex){a*b, 0.}, S1,
+			       (qpb_complex){b*b, 0.}, S2);
+	      qpb_spinor_axpy(DDu, (qpb_complex){a, 0.}, Du, DDu); /* D^dag D u */
+	      qpb_double lam2;
+	      qpb_spinor_xdotx(&lam2, Du);                  /* <u, D^dag D u> */
+	      qpb_spinor_axpy(DDu, (qpb_complex){-lam2, 0.}, u[c], DDu);
+	      qpb_double rr;
+	      qpb_spinor_xdotx(&rr, DDu);
+	      print(" Mass check, sector %c, mode %2d, am = %g: lambda^2 = %.12e, "
+		    "||D^dag D u - lambda^2 u|| = %e\n",
+		    sc, c, masses[im], lam2, sqrt(rr));
+	    }
+	}
+
       for(int c=0; c<chiral_modes; c++)
 	{
 	  qpb_spinor_field_finalize(u[c]);
@@ -895,6 +930,10 @@ main(int argc, char *argv[])
   free(mu);
   qpb_spinor_field_finalize(t1);
   qpb_spinor_field_finalize(t2);
+  qpb_spinor_field_finalize(S1);
+  qpb_spinor_field_finalize(S2);
+  qpb_spinor_field_finalize(Du);
+  qpb_spinor_field_finalize(DDu);
 
   qpb_overlap_kl_pfrac_finalize();
 
