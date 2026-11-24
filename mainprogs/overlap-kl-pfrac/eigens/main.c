@@ -16,6 +16,13 @@
   H = γ5 Dov,m is exactly Hermitian also for the approximate sign function,
   up to the precision of the inner multi-shift CG solves. For the exact
   overlap operator: spec(H^2) ⊂ [m^2, 4ρ^2].
+
+  The sign function is the one the solvers use: low-mode deflated by default
+  ("Lanczos epsilon" / "Lanczos max vectors" drive that deflation build, as in
+  the other KL pfrac programs); "Deflation = off" gives the plain one.  With
+  deflation, H stays Hermitian up to the Ritz residuals of the deflated modes.
+  The eigensolver below has its own keys, "Eigensolver epsilon" and
+  "Eigensolver max iters".
 */
 
 enum {
@@ -304,27 +311,76 @@ main(int argc, char *argv[])
       exit(QPB_PARSER_ERROR);
     }
 
-  /* Lanczos parameters */
+  /* Eigensolver: the Lanczos on H^2 = (g5 Dov,m)^2 run by this program */
   qpb_double lanczos_epsilon;
-  if(sscanf(qpb_parse("Lanczos epsilon"), "%lf", &lanczos_epsilon)!=1)
+  if(sscanf(qpb_parse("Eigensolver epsilon"), "%lf", &lanczos_epsilon)!=1)
+    {
+      error("error parsing for %s\n",
+	    "Eigensolver epsilon");
+      exit(QPB_PARSER_ERROR);
+    }
+
+  int lanczos_max_iters;
+  if(sscanf(qpb_parse("Eigensolver max iters"), "%d", &lanczos_max_iters)!=1)
+    {
+      error("error parsing for %s\n",
+	    "Eigensolver max iters");
+      exit(QPB_PARSER_ERROR);
+    }
+  if(lanczos_max_iters<2)
+    {
+      error("Eigensolver max iters should be at least 2, quiting\n");
+      exit(QPB_PARAMETERS_ERROR);
+    }
+
+  /* Sign-function deflation build (inside qpb_overlap_kl_pfrac_init): the
+     Lanczos on X^2 whose low modes are treated exactly */
+  qpb_double Lanczos_epsilon;
+  if(sscanf(qpb_parse("Lanczos epsilon"), "%lf", &Lanczos_epsilon)!=1)
     {
       error("error parsing for %s\n",
 	    "Lanczos epsilon");
       exit(QPB_PARSER_ERROR);
     }
 
-  int lanczos_max_iters;
-  if(sscanf(qpb_parse("Lanczos max iters"), "%d", &lanczos_max_iters)!=1)
+  int Lanczos_max_vectors;
+  if(sscanf(qpb_parse("Lanczos max vectors"), "%d", &Lanczos_max_vectors)!=1)
     {
       error("error parsing for %s\n",
-	    "Lanczos max iters");
+	    "Lanczos max vectors");
       exit(QPB_PARSER_ERROR);
     }
-  if(lanczos_max_iters<2)
+  if(Lanczos_max_vectors < 2 || Lanczos_max_vectors > QPB_KL_DEFL_MAX_VECTORS)
     {
-      error("Lanczos max iters should be at least 2, quiting\n");
+      error("Lanczos max vectors = %d out of range [2, %d], quiting\n",
+	    Lanczos_max_vectors, QPB_KL_DEFL_MAX_VECTORS);
       exit(QPB_PARAMETERS_ERROR);
     }
+
+  /* Optional: "Deflation = off" skips the low-mode deflation build entirely
+     (whatever QPB_DEFL_K is); "on" or no key keeps the default behaviour. */
+  int defl_off = 0;
+  char *defl_switch = qpb_parse_optional("Deflation");
+  if(defl_switch != NULL)
+    {
+      char defl_word[QPB_MAX_STRING];
+      if(sscanf(defl_switch, "%s", defl_word)!=1)
+	{
+	  error("error parsing for %s\n", "Deflation");
+	  exit(QPB_PARSER_ERROR);
+	}
+      if(strcmp(defl_word, "off") == 0)
+	defl_off = 1;
+      else if(strcmp(defl_word, "on") != 0)
+	{
+	  error("%s: option should be one of: ", "Deflation");
+	  error("%s, ", "on");
+	  error("%s\n", "off");
+	  exit(QPB_PARSER_ERROR);
+	}
+    }
+  if(defl_off)
+    qpb_overlap_kl_pfrac_disable_deflation();
 
   qpb_double timebc;
   if(sscanf(qpb_parse("BC in time"), "%lf", &timebc)!=1)
@@ -401,8 +457,14 @@ main(int argc, char *argv[])
   print(" BC in time = %g\n", timebc);
   print(" Solver epsilon = %e\n", epsilon);
   print(" Max solver iters = %d\n", max_iters);
-  print(" Lanczos epsilon = %e\n", lanczos_epsilon);
-  print(" Max Lanczos iters = %d\n", lanczos_max_iters);
+  print(" Eigensolver epsilon = %e\n", lanczos_epsilon);
+  print(" Eigensolver max iters = %d\n", lanczos_max_iters);
+  print(" Lanczos epsilon = %e\n", Lanczos_epsilon);
+  print(" Lanczos max vectors = %d\n", Lanczos_max_vectors);
+  if(defl_off)
+    {
+      print(" Deflation = off\n");
+    }
   switch(which_dslash_op)
     {
     case QPB_DSLASH_BRILLOUIN:
@@ -491,8 +553,14 @@ main(int argc, char *argv[])
       break;
     }
 
-  qpb_overlap_kl_pfrac_init(solver_arg_links, clover_term, kl_class, kl_iters, \
-                          rho, c_sw, mass, scaling_factor, epsilon, max_iters);
+  /* Only the overlap operator is applied (never inverted), so the
+     preconditioner is switched off (prec_max_iter = 0); its tolerances are
+     inert. */
+  qpb_overlap_kl_pfrac_init(solver_arg_links, clover_term, kl_class, kl_iters,
+                          rho, c_sw, mass, scaling_factor,
+                          epsilon, epsilon, max_iters,
+                          epsilon, 0,
+                          Lanczos_epsilon, Lanczos_max_vectors);
 
   /* Lanczos vectors */
   qpb_spinor_field r = qpb_spinor_field_init();
