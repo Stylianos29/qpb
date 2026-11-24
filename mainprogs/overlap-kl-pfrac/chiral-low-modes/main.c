@@ -60,6 +60,231 @@ apply_sign(qpb_spinor_field y, qpb_spinor_field x)
 }
 
 
+/* y = P_sigma x = (x + sigma g5 x) / 2,  sigma = +1 or -1.  y may alias x;
+   tmp must differ from both. */
+static void
+chiral_project(qpb_spinor_field y, qpb_spinor_field x, int sigma,
+	       qpb_spinor_field tmp)
+{
+  qpb_spinor_gamma5(tmp, x);
+  qpb_spinor_axpby(y, (qpb_complex){0.5, 0.}, x,
+		   (qpb_complex){0.5*sigma, 0.}, tmp);
+}
+
+
+/* y = A_sigma x = P_sigma g5 s P_sigma x  (one sign-function application).
+   t1, t2 are scratch, distinct from x and y. */
+static void
+apply_chiral(qpb_spinor_field y, qpb_spinor_field x, int sigma,
+	     qpb_spinor_field t1, qpb_spinor_field t2)
+{
+  chiral_project(t1, x, sigma, t2);              /* t1 = P x          */
+  qpb_gamma5_sign_function_of_X_pfrac(t2, t1);   /* t2 = g5 s P x     */
+  chiral_project(y, t2, sigma, t1);              /* y  = P g5 s P x   */
+}
+
+
+/*
+  Lanczos with full re-orthogonalization on A_sigma, restricted to the chiral
+  sector P_sigma.  Stops when the Ritz-residual bound beta_m |S_{m,i}| of
+  each of the nmodes lowest Ritz pairs is below eps (absolute: ||A|| ~ 1), or
+  at mmax vectors.  The nmodes lowest Ritz vectors are lifted into u[] (which
+  this function initialises), orthonormalized, and their Ritz values written
+  to mu[].  Returns the Lanczos dimension m; *converged reports the stop.
+*/
+static int
+chiral_lanczos(int sigma, int nmodes, qpb_double eps, int mmax,
+	       qpb_spinor_field *u, qpb_double *mu, int *converged)
+{
+  char sc = (sigma > 0) ? '+' : '-';
+  qpb_spinor_field *lv = qpb_alloc(sizeof(qpb_spinor_field)*mmax);
+  int n_alloc = 0;
+  qpb_spinor_field av = qpb_spinor_field_init();
+  qpb_spinor_field t1 = qpb_spinor_field_init();
+  qpb_spinor_field t2 = qpb_spinor_field_init();
+  qpb_double *alpha = qpb_alloc(sizeof(qpb_double)*mmax);
+  qpb_double *beta  = qpb_alloc(sizeof(qpb_double)*mmax);
+
+  /* v_0: random, projected onto the sector, normalized */
+  lv[0] = qpb_spinor_field_init();
+  n_alloc = 1;
+  qpb_spinor_field_set_random(lv[0]);
+  chiral_project(lv[0], lv[0], sigma, t1);
+  qpb_double nrm;
+  qpb_spinor_xdotx(&nrm, lv[0]);
+  qpb_spinor_ax(lv[0], (qpb_complex){1./sqrt(nrm), 0.}, lv[0]);
+
+  int m = 0;
+  *converged = 0;
+  qpb_double t = qpb_stop_watch(0);
+  for(int j=0; j<mmax; j++)
+    {
+      apply_chiral(av, lv[j], sigma, t1, t2);
+      if(j > 0)
+	qpb_spinor_axpy(av, (qpb_complex){-beta[j-1], 0.}, lv[j-1], av);
+      qpb_complex_double a;
+      qpb_spinor_xdoty(&a, lv[j], av);
+      alpha[j] = a.re;
+      qpb_spinor_axpy(av, (qpb_complex){-alpha[j], 0.}, lv[j], av);
+
+      /* full re-orthogonalization (twice), then remove any leakage out of
+	 the sector */
+      for(int pass=0; pass<2; pass++)
+	for(int i=0; i<=j; i++)
+	  {
+	    qpb_complex_double c;
+	    qpb_spinor_xdoty(&c, lv[i], av);
+	    qpb_spinor_axpy(av, (qpb_complex){-c.re, -c.im}, lv[i], av);
+	  }
+      chiral_project(av, av, sigma, t1);
+
+      qpb_double bb;
+      qpb_spinor_xdotx(&bb, av);
+      beta[j] = sqrt(bb);
+      m = j+1;
+
+      /* Ritz-residual test, every step up to m = 100, then every 10 */
+      if(m >= nmodes+1 && (m <= 100 || m % 10 == 0))
+	{
+	  gsl_matrix *T = gsl_matrix_calloc(m, m);
+	  for(int i=0; i<m; i++)
+	    gsl_matrix_set(T, i, i, alpha[i]);
+	  for(int i=0; i<m-1; i++)
+	    {
+	      gsl_matrix_set(T, i, i+1, beta[i]);
+	      gsl_matrix_set(T, i+1, i, beta[i]);
+	    }
+	  gsl_vector *ev = gsl_vector_alloc(m);
+	  gsl_matrix *S  = gsl_matrix_alloc(m, m);
+	  gsl_eigen_symmv_workspace *ws = gsl_eigen_symmv_alloc(m);
+	  gsl_eigen_symmv(T, ev, S, ws);
+	  gsl_eigen_symmv_sort(ev, S, GSL_EIGEN_SORT_VAL_ASC);
+	  gsl_eigen_symmv_free(ws);
+
+	  qpb_double rmax = 0.;
+	  for(int i=0; i<nmodes; i++)
+	    {
+	      qpb_double r = beta[j]*fabs(gsl_matrix_get(S, m-1, i));
+	      if(r > rmax) rmax = r;
+	    }
+	  if(m % 20 == 0)
+	    {
+	      print("   sector %c: m = %4d, 1+mu_1 = %e, 1+mu_%d = %e, "
+		    "max Ritz residual = %e (target = %e)\n",
+		    sc, m, 1.+gsl_vector_get(ev, 0), nmodes,
+		    1.+gsl_vector_get(ev, nmodes-1), rmax, eps);
+	    }
+	  gsl_matrix_free(T);
+	  gsl_vector_free(ev);
+	  gsl_matrix_free(S);
+	  if(rmax < eps)
+	    {
+	      *converged = 1;
+	      break;
+	    }
+	}
+
+      /* next Lanczos vector */
+      if(j < mmax-1)
+	{
+	  lv[j+1] = qpb_spinor_field_init();
+	  n_alloc = j+2;
+	  if(beta[j] < 1e-12)
+	    {
+	      /* invariant subspace: restart with a fresh random vector in the
+		 sector, orthogonalized against the basis */
+	      qpb_spinor_field_set_random(lv[j+1]);
+	      chiral_project(lv[j+1], lv[j+1], sigma, t1);
+	      for(int i=0; i<=j; i++)
+		{
+		  qpb_complex_double c;
+		  qpb_spinor_xdoty(&c, lv[i], lv[j+1]);
+		  qpb_spinor_axpy(lv[j+1], (qpb_complex){-c.re, -c.im},
+				  lv[i], lv[j+1]);
+		}
+	      qpb_double nn;
+	      qpb_spinor_xdotx(&nn, lv[j+1]);
+	      qpb_spinor_ax(lv[j+1], (qpb_complex){1./sqrt(nn), 0.}, lv[j+1]);
+	      beta[j] = 0.;
+	    }
+	  else
+	    {
+	      qpb_spinor_ax(lv[j+1], (qpb_complex){1./beta[j], 0.}, av);
+	    }
+	}
+    }
+  t = qpb_stop_watch(t);
+
+  if(*converged)
+    {
+      print(" Chiral Lanczos, sector %c: converged, m = %d, t = %g sec\n",
+	    sc, m, t);
+    }
+  else
+    {
+      error(" Chiral Lanczos, sector %c: WARNING -- hit max vectors = %d "
+	    "without reaching eps = %e; the modes may be under-converged\n",
+	    sc, mmax, eps);
+      print(" Chiral Lanczos, sector %c: WARNING -- hit max vectors = %d "
+	    "without reaching eps = %e; the modes may be under-converged\n",
+	    sc, mmax, eps);
+    }
+
+  /* final eigendecomposition and lifting of the nmodes lowest Ritz vectors */
+  gsl_matrix *T = gsl_matrix_calloc(m, m);
+  for(int i=0; i<m; i++)
+    gsl_matrix_set(T, i, i, alpha[i]);
+  for(int i=0; i<m-1; i++)
+    {
+      gsl_matrix_set(T, i, i+1, beta[i]);
+      gsl_matrix_set(T, i+1, i, beta[i]);
+    }
+  gsl_vector *ev = gsl_vector_alloc(m);
+  gsl_matrix *S  = gsl_matrix_alloc(m, m);
+  gsl_eigen_symmv_workspace *ws = gsl_eigen_symmv_alloc(m);
+  gsl_eigen_symmv(T, ev, S, ws);
+  gsl_eigen_symmv_sort(ev, S, GSL_EIGEN_SORT_VAL_ASC);
+  gsl_eigen_symmv_free(ws);
+
+  for(int c=0; c<nmodes; c++)
+    {
+      mu[c] = gsl_vector_get(ev, c);
+      u[c] = qpb_spinor_field_init();
+      qpb_spinor_field_set_zero(u[c]);
+      for(int i=0; i<m; i++)
+	qpb_spinor_axpy(u[c], (qpb_complex){gsl_matrix_get(S, i, c), 0.},
+			lv[i], u[c]);
+    }
+  gsl_matrix_free(T);
+  gsl_vector_free(ev);
+  gsl_matrix_free(S);
+
+  /* modified Gram-Schmidt: enforce U^dag U = 1 within the sector */
+  for(int a=0; a<nmodes; a++)
+    {
+      for(int b=0; b<a; b++)
+	{
+	  qpb_complex_double c;
+	  qpb_spinor_xdoty(&c, u[b], u[a]);
+	  qpb_spinor_axpy(u[a], (qpb_complex){-c.re, -c.im}, u[b], u[a]);
+	}
+      qpb_double n2;
+      qpb_spinor_xdotx(&n2, u[a]);
+      qpb_spinor_ax(u[a], (qpb_complex){1./sqrt(n2), 0.}, u[a]);
+    }
+
+  for(int i=0; i<n_alloc; i++)
+    qpb_spinor_field_finalize(lv[i]);
+  free(lv);
+  qpb_spinor_field_finalize(av);
+  qpb_spinor_field_finalize(t1);
+  qpb_spinor_field_finalize(t2);
+  free(alpha);
+  free(beta);
+  return m;
+}
+
+
 int
 main(int argc, char *argv[])
 {
@@ -626,6 +851,50 @@ main(int argc, char *argv[])
     qpb_spinor_field_finalize(sx);
     qpb_spinor_field_finalize(sy);
   }
+
+  /* ---- 2. chiral Lanczos, one sector at a time ---- */
+  qpb_spinor_field *u = qpb_alloc(sizeof(qpb_spinor_field)*chiral_modes);
+  qpb_spinor_field *G = qpb_alloc(sizeof(qpb_spinor_field)*chiral_modes);
+  qpb_double *mu = qpb_alloc(sizeof(qpb_double)*chiral_modes);
+  qpb_spinor_field t1 = qpb_spinor_field_init();
+  qpb_spinor_field t2 = qpb_spinor_field_init();
+
+  for(int sec=0; sec<2; sec++)
+    {
+      int sigma = (sec == 0) ? +1 : -1;
+      char sc = (sigma > 0) ? '+' : '-';
+      int converged;
+      print("\n Chiral Lanczos, sector %c...\n", sc);
+      chiral_lanczos(sigma, chiral_modes, chiral_epsilon, chiral_max_vectors,
+		     u, mu, &converged);
+
+      /* explicit check of each mode, with G = g5 s u kept for the mass
+	 checks:  A u = P g5 s u = P G  (u lies in the sector) */
+      for(int c=0; c<chiral_modes; c++)
+	{
+	  G[c] = qpb_spinor_field_init();
+	  qpb_gamma5_sign_function_of_X_pfrac(G[c], u[c]);
+	  chiral_project(t1, G[c], sigma, t2);              /* t1 = A u   */
+	  qpb_complex_double z;
+	  qpb_spinor_xdoty(&z, u[c], t1);                   /* mu = <u, A u> */
+	  qpb_spinor_axpy(t1, (qpb_complex){-z.re, 0.}, u[c], t1);
+	  qpb_double rr;
+	  qpb_spinor_xdotx(&rr, t1);
+	  print(" Chiral sector %c, mode %2d: 1+mu = %+.12e, "
+		"||A u - mu u|| = %e\n", sc, c, 1.+z.re, sqrt(rr));
+	}
+
+      for(int c=0; c<chiral_modes; c++)
+	{
+	  qpb_spinor_field_finalize(u[c]);
+	  qpb_spinor_field_finalize(G[c]);
+	}
+    }
+  free(u);
+  free(G);
+  free(mu);
+  qpb_spinor_field_finalize(t1);
+  qpb_spinor_field_finalize(t2);
 
   qpb_overlap_kl_pfrac_finalize();
 
