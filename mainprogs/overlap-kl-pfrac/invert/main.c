@@ -1082,6 +1082,9 @@ main(int argc, char *argv[])
                   ms_epsilon, prec_ms_epsilon, ms_max_iters,
                   prec_epsilon, prec_max_iter,
                   Lanczos_epsilon, Lanczos_max_vectors);
+  
+  qpb_double t_overhead = qpb_stop_watch(t);
+  print(" Total overhead time: %f sec\n", t_overhead);
 
   for(int i=0; i<n_spinors; i++)
   {
