@@ -314,9 +314,10 @@ main(int argc, char *argv[])
     }
 
   /* Optional: choose the deflation k from a spectral target instead of the
-     compile-time QPB_DEFL_K -- the smallest k with sqrt(theta_{k+1}) >= target
-     (|X| units), capped at k_max; the Zolotarev interval then starts at
-     theta_{k+1}.  Both keys absent => behaviour unchanged. */
+     compile-time QPB_DEFL_K -- the smallest k with sqrt(theta_{k+1}) >=
+     min(target, mu/sqrt(theta_max)) (|X| units, mu = Scaling factor), capped at
+     k_max; the Zolotarev interval then starts at theta_{k+1}.  mu affects only
+     this choice of k.  Both keys absent => compile-time k. */
   int defl_target_on = 0;
   qpb_double defl_lambda_target = 0.1;
   int defl_k_max = 64;

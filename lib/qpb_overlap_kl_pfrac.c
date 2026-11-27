@@ -109,10 +109,15 @@
  *
  *  Optional spectral target (qpb_overlap_kl_pfrac_set_deflation_target, called
  *  before init; overrides QPB_DEFL_K):  k is the smallest number of modes with
- *  sqrt(theta_{k+1}) >= lambda_target, capped at k_max.  The diagonal KL error
- *  sits at the low end of the spectrum, so the decay of the sign-function error
- *  is set by the lowest UNdeflated eigenvalue; lifting every configuration to
- *  the same lower edge gives (nearly) the same convergence across an ensemble.
+ *  sqrt(theta_{k+1}) >= lambda_eff, capped at k_max, where
+ *      lambda_eff = min(lambda_target, mu/sqrt(theta_max)),
+ *  mu is the outer-level scaling_factor passed to init and theta_max the largest
+ *  Ritz value of X^2 from the build's own Lanczos.
+ *  The diagonal KL error r(y), y = |X|/sqrt(mu), obeys r(1/y) = 1/r(y).  At
+ *  theta_{k+1} = mu^2/theta_max the lower edge of the undeflated spectrum is as
+ *  accurate as the upper edge, so deflating further cannot improve the worst
+ *  case: that is the second bound.  Below it, the decay of the error is set by
+ *  the lowest UNdeflated eigenvalue.
  *
  *  Compile-time controls (override e.g. with -DQPB_DEFL_K=0 for the baseline):
  *      QPB_DEFL_K     : number of low modes carried in V (0 disables deflation),
@@ -176,6 +181,7 @@ static int              defl_built = 0;      /* has V been built for this config
    Unset => k is the compile-time QPB_DEFL_K, exactly as before. */
 static int              defl_target_set    = 0;
 static qpb_double       defl_lambda_target = 0.;  /* in |X| units */
+static qpb_double       defl_mu            = 1.;  /* outer scaling_factor */
 static int              defl_k_max         = 0;   /* cap on k     */
 
 /* Deflation switched off entirely (qpb_overlap_kl_pfrac_disable_deflation). */
@@ -274,13 +280,23 @@ tridiag_eigenv(qpb_double *eig, qpb_double *a, qpb_double *b, int n)
 }
 
 
+/* Effective |X| target: min(lambda_target, mu/sqrt(theta_max)). */
+INLINE qpb_double
+defl_effective_target(qpb_double theta_max)
+{
+  qpb_double mu_bound = defl_mu/sqrt(theta_max);
+  return (mu_bound < defl_lambda_target) ? mu_bound : defl_lambda_target;
+}
+
+
 /* Target-mode k for the current Ritz values eig[0..m-1] (ascending): the
-   number with theta < lambda_target^2, capped at k_max and at m-1 (theta_{k+1}
-   must exist). */
+   number with theta < lambda_eff^2, capped at k_max and at m-1 (theta_{k+1}
+   must exist).  eig[m-1] is the current estimate of theta_max. */
 INLINE int
 defl_k_for_target(qpb_double *eig, int m)
 {
-  qpb_double t2 = defl_lambda_target*defl_lambda_target;
+  qpb_double lambda_eff = defl_effective_target(eig[m-1]);
+  qpb_double t2 = lambda_eff*lambda_eff;
   int k = 0;
   while(k < m && eig[k] < t2)
     k++;
@@ -385,10 +401,10 @@ qpb_overlap_kl_pfrac_set_lowmode_start(int k, qpb_double Lanczos_epsilon,
  *  Zolotarev there is no spectral interval to shrink, so nothing consumes it.
  *
  *  With a spectral target set, k is not fixed: at each check k_cur = #{theta <
- *  lambda_target^2} (capped at k_max), and the test runs on theta_1..
- *  theta_{k_cur+1} and lambda_max.  The final k is k_cur when it passes (may be
- *  0: then only the spectral data are reported and nothing is deflated).  The
- *  low Ritz values only decrease with m, so k_cur never decreases.
+ *  lambda_eff^2} (capped at k_max), lambda_eff taken from the current theta_max
+ *  estimate, and the test runs on theta_1..theta_{k_cur+1} and lambda_max.  The
+ *  final k is k_cur when it passes (may be 0: then only the spectral data are
+ *  reported and nothing is deflated).
  *
  *  Returns: the converged Lanczos dimension m.
  * ------------------------------------------------------------------------- */
@@ -715,6 +731,11 @@ build_deflation_subspace(qpb_double Lanczos_epsilon, int Lanczos_max_vectors)
       gsl_vector_free(th);
       gsl_matrix_complex_free(Q);
     }
+  else
+    {
+      /* with k > 0, theta_max is part of the boundary line above */
+      print(" Deflation: theta_max = %e\n", theta_max);
+    }
 
   for(int i=0; i<n_alloc; i++)
     qpb_spinor_field_finalize(lv[i]);
@@ -735,15 +756,16 @@ build_deflation_subspace(qpb_double Lanczos_epsilon, int Lanczos_max_vectors)
 
   if(target)
     {
-      int reached = (sqrt(theta_kp1) >= defl_lambda_target);
+      qpb_double lambda_eff = defl_effective_target(theta_max);
+      int reached = (sqrt(theta_kp1) >= lambda_eff);
       print(" Deflation target: lambda_target = %e, k = %d, sqrt(theta_1) = %e, "
 	    "sqrt(theta_{k+1}) = %e, reached = %d\n",
-	    defl_lambda_target, k, sqrt(theta_1), sqrt(theta_kp1), reached);
+	    lambda_eff, k, sqrt(theta_1), sqrt(theta_kp1), reached);
       if(!reached)
 	{
 	  DEFL_WARN(" Deflation: WARNING -- lambda_target = %e NOT reached (k = %d, "
 		"k_max = %d): sqrt(theta_{k+1}) = %e\n",
-		defl_lambda_target, k, kcap, sqrt(theta_kp1));
+		lambda_eff, k, kcap, sqrt(theta_kp1));
 	}
     }
 
@@ -755,12 +777,21 @@ void
 qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover,
           enum qpb_kl_classes kl_class, int kl_iters, qpb_double rho,
           qpb_double c_sw, qpb_double mass, qpb_double scaling_factor,
+          qpb_double prec_scaling_factor,
           qpb_double ms_epsilon, qpb_double prec_ms_epsilon, int ms_max_iters,
           qpb_double prec_epsilon, int prec_max_iter,
           qpb_double Lanczos_epsilon, int Lanczos_max_vectors)
 {
   if(ov_params.initialized == QPB_OVERLAP_INITIALIZED)
     return;
+
+  if(!(scaling_factor > 0.) || !(prec_scaling_factor > 0.))
+    {
+      error("Scaling factor = %g and preconditioner scaling factor = %g must "
+            "be positive, quiting\n", scaling_factor, prec_scaling_factor);
+      exit(QPB_PARAMETERS_ERROR);
+    }
+  defl_mu = scaling_factor;   /* the deflation rule follows the outer level */
 
   qpb_comm_halo_spinor_field_init();
   for(int i=0; i<OVERLAP_NUMB_TEMP_VECS; i++) {
@@ -864,16 +895,16 @@ qpb_overlap_kl_pfrac_init(void * gauge, qpb_clover_term clover,
       numerators[lvl][i] = 2 * constant_term[lvl] / powl(cos(t), 2);
     }
 
-    /* scaling_factor rescales sigma_i -> scaling_factor*sigma_i; restricted to
-    the preconditioner levels (L1, L2). LEVEL_OUTER is never scaled, so the
-    outer sign-function accuracy — and hence the final propagator — is
-    completely unaffected by this knob; only the preconditioner's internal
-    convergence rate can change. */
-    if(lvl != LEVEL_OUTER && scaling_factor != 1.0) {
-      constant_term[lvl] *= 1.0 / sqrt(scaling_factor);
+    /* A level's factor mu rescales sigma_i -> mu*sigma_i, i.e. evaluates the
+    KL rational at X/sqrt(mu).  LEVEL_OUTER takes scaling_factor; the
+    preconditioner levels (L1, L2) take prec_scaling_factor, which only changes
+    the preconditioner's convergence rate, never the outer operator. */
+    qpb_double mu = (lvl == LEVEL_OUTER) ? scaling_factor : prec_scaling_factor;
+    if(mu != 1.0) {
+      constant_term[lvl] *= 1.0 / sqrt(mu);
       for(int i = 0; i < n; i++) {
-        numerators[lvl][i] *= sqrt(scaling_factor);
-        shifts    [lvl][i] *= scaling_factor;
+        numerators[lvl][i] *= sqrt(mu);
+        shifts    [lvl][i] *= mu;
       }
     }
   }

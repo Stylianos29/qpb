@@ -822,7 +822,7 @@ main(int argc, char *argv[])
      irrelevant (0) and the preconditioner is switched off (prec_max_iter =
      0); its tolerances are inert.  D at each am is assembled below. */
   qpb_overlap_kl_pfrac_init(solver_arg_links, clover_term, kl_class, kl_iters,
-                          rho, c_sw, 0., scaling_factor,
+                          rho, c_sw, 0., scaling_factor, 1.0,
                           epsilon, epsilon, max_iters,
                           epsilon, 0,
                           Lanczos_epsilon, Lanczos_max_vectors);

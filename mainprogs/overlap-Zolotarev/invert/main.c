@@ -673,13 +673,6 @@ main(int argc, char *argv[])
       timebc = 1;
     }
 
-  qpb_double scaling_factor;
-  if(sscanf(qpb_parse("Scaling factor"), "%lf", &scaling_factor)!=1)
-  {
-    error("error parsing for %s\n", "Mu");
-    exit(QPB_PARSER_ERROR);
-  }
-
   qpb_double Lanczos_epsilon;
   if(sscanf(qpb_parse("Lanczos epsilon"), "%lf", &Lanczos_epsilon)!=1)
     {
@@ -852,7 +845,6 @@ main(int argc, char *argv[])
   print(" rho = %.2f\n", rho);
   print(" KL class = %d\n", 11);
   print(" Zolotarev order = %d\n", Zol_order);
-  print(" Mu = %.3f\n", scaling_factor);
   switch(solver)
   {
   case BICGSTAB:
@@ -1093,8 +1085,10 @@ main(int argc, char *argv[])
 
   qpb_double t = qpb_stop_watch(0);
 
+  /* The scaling factor only enters the deflation target rule, which this
+     program does not use: pass 1. */
   qpb_overlap_Zolotarev_init(solver_arg_links, clover_term, Zol_order, \
-                  rho, c_sw, mass, scaling_factor, \
+                  rho, c_sw, mass, 1.0, \
                   ms_epsilon, prec_ms_epsilon, ms_max_iters, \
                   prec_epsilon, prec_max_iter, \
                   Lanczos_epsilon, Lanczos_max_iters, \

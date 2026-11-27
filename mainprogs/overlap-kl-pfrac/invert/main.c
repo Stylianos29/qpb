@@ -713,6 +713,14 @@ main(int argc, char *argv[])
     exit(QPB_PARSER_ERROR);
   }
 
+  qpb_double prec_scaling_factor;
+  if(sscanf(qpb_parse("Preconditioner scaling factor"), "%lf",
+            &prec_scaling_factor)!=1)
+  {
+    error("error parsing for %s\n", "Preconditioner scaling factor");
+    exit(QPB_PARSER_ERROR);
+  }
+
   /* Optional: "Deflation = off" skips the low-mode deflation build entirely
      (whatever QPB_DEFL_K is); "on" or no key keeps the default behaviour. */
   int defl_off = 0;
@@ -894,6 +902,7 @@ main(int argc, char *argv[])
   print(" KL class = %d\n", 11);
   print(" KL iters = %d\n", kl_iters);
   print(" Mu = %.3f\n", scaling_factor);
+  print(" Preconditioner Mu = %.3f\n", prec_scaling_factor);
   switch(solver)
   {
   case BICGSTAB:
@@ -1138,7 +1147,7 @@ main(int argc, char *argv[])
   qpb_double t = qpb_stop_watch(0);
 
   qpb_overlap_kl_pfrac_init(solver_arg_links, clover_term, kl_class, kl_iters,
-                  rho, c_sw, mass, scaling_factor,
+                  rho, c_sw, mass, scaling_factor, prec_scaling_factor,
                   ms_epsilon, prec_ms_epsilon, ms_max_iters,
                   prec_epsilon, prec_max_iter,
                   Lanczos_epsilon, Lanczos_max_vectors);

@@ -557,7 +557,7 @@ main(int argc, char *argv[])
      preconditioner is switched off (prec_max_iter = 0); its tolerances are
      inert. */
   qpb_overlap_kl_pfrac_init(solver_arg_links, clover_term, kl_class, kl_iters,
-                          rho, c_sw, mass, scaling_factor,
+                          rho, c_sw, mass, scaling_factor, 1.0,
                           epsilon, epsilon, max_iters,
                           epsilon, 0,
                           Lanczos_epsilon, Lanczos_max_vectors);

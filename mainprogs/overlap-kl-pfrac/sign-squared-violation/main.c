@@ -310,8 +310,9 @@ main(int argc, char *argv[])
     }
 
   /* Optional: choose the deflation k from a spectral target instead of the
-     compile-time QPB_DEFL_K -- the smallest k with sqrt(theta_{k+1}) >= target
-     (|X| units), capped at k_max.  Both keys absent => behaviour unchanged. */
+     compile-time QPB_DEFL_K -- the smallest k with sqrt(theta_{k+1}) >=
+     min(target, mu/sqrt(theta_max)) (|X| units, mu = Scaling factor), capped at
+     k_max.  Both keys absent => compile-time k. */
   int defl_target_on = 0;
   qpb_double defl_lambda_target = 0.1;
   int defl_k_max = 64;
@@ -553,7 +554,7 @@ main(int argc, char *argv[])
      (prec_max_iter = 0) and its tolerances are inert. */
   qpb_double t = qpb_stop_watch(0);
   qpb_overlap_kl_pfrac_init(solver_arg_links, clover_term, kl_class, kl_iters,
-                          rho, c_sw, mass, scaling_factor,
+                          rho, c_sw, mass, scaling_factor, 1.0,
                           epsilon, epsilon, max_iters,
                           epsilon, 0,
                           Lanczos_epsilon, Lanczos_max_vectors);

@@ -10,8 +10,10 @@
 #define QPB_ZOL_DEFL_MAX_K        64  /* k_max of the spectral target       */
 #define QPB_ZOL_DEFL_MAX_LAMBDA  0.5  /* lambda_target of the target (|X|)  */
 
-void qpb_overlap_Zolotarev_init(void *, qpb_clover_term, int, qpb_double,
-     qpb_double, qpb_double, qpb_double,
+/* scaling_factor (mu > 0) does not rescale the sign function; it only enters
+   the deflation target rule (see below). */
+void qpb_overlap_Zolotarev_init(void *, qpb_clover_term, int, qpb_double /*rho*/,
+     qpb_double /*c_sw*/, qpb_double /*mass*/, qpb_double /*scaling_factor*/,
      qpb_double /*ms_epsilon*/, qpb_double /*prec_ms_epsilon*/, int /*ms_max_iter*/,
      qpb_double /*prec_epsilon*/, int /*prec_max_iter*/,
      qpb_double /*Lanczos_epsilon*/, int /*Lanczos_max_iters*/,
@@ -23,8 +25,9 @@ int  qpb_bicgstab_overlap_Zolotarev(qpb_spinor_field, qpb_spinor_field, qpb_doub
 void qpb_overlap_Zolotarev_finalize();
 
 /* Optional: call before init to choose k from the spectrum instead of the
-   compile-time QPB_DEFL_K (smallest k with sqrt(theta_{k+1}) >= lambda_target,
-   capped at k_max; lambda_target in |X| units).  Needs
+   compile-time QPB_DEFL_K: smallest k with sqrt(theta_{k+1}) >=
+   min(lambda_target, scaling_factor/sqrt(theta_max)), capped at k_max;
+   lambda_target in |X| units.  Needs
    0 <= lambda_target <= QPB_ZOL_DEFL_MAX_LAMBDA, 0 <= k_max <= QPB_ZOL_DEFL_MAX_K. */
 void qpb_overlap_Zolotarev_set_deflation_target(qpb_double /*lambda_target*/,
                                                 int /*k_max*/);

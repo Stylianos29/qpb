@@ -116,8 +116,13 @@
  *
  *  Optional spectral target (qpb_overlap_Zolotarev_set_deflation_target, called
  *  before init; overrides QPB_DEFL_K):  k is the smallest number of modes with
- *  sqrt(theta_{k+1}) >= lambda_target, capped at k_max.  With the shrunk
- *  interval this bounds the Zolotarev interval from below by lambda_target^2.
+ *  sqrt(theta_{k+1}) >= lambda_eff, capped at k_max, where
+ *      lambda_eff = min(lambda_target, mu/sqrt(theta_max)),
+ *  mu is the scaling_factor passed to init and theta_max the largest Ritz value
+ *  of X^2 from the build's own Lanczos (before delta_max).  The second bound,
+ *  theta_{k+1} >= mu^2/theta_max, mirrors the KL module for comparisons: it is
+ *  where a KL rational of X/sqrt(mu) is as accurate at theta_{k+1} as at
+ *  theta_max.  mu enters ONLY this choice of k, never the Zolotarev tables.
  *
  *  Optional off switch (qpb_overlap_Zolotarev_disable_deflation, called before
  *  init): no deflation build at all; the interval then comes from
@@ -202,6 +207,7 @@ static int              defl_built = 0;      /* has V been built for this config
    Unset => k is the compile-time QPB_DEFL_K, exactly as before. */
 static int              defl_target_set    = 0;
 static qpb_double       defl_lambda_target = 0.;  /* in |X| units */
+static qpb_double       defl_mu            = 1.;  /* init's scaling_factor */
 static int              defl_k_max         = 0;   /* cap on k     */
 
 /* Deflation switched off entirely (qpb_overlap_Zolotarev_disable_deflation). */
@@ -374,7 +380,7 @@ qpb_extreme_eigenvalues_of_X_squared(qpb_double *min_eigv, \
    [ov_params.min_eigv, ov_params.max_eigv]. Called once per active level with
    order >= 1. */
 static void
-build_zolotarev_tables(overlap_level_t lvl, int order, qpb_double scaling_factor)
+build_zolotarev_tables(overlap_level_t lvl, int order)
 {
   qpb_double min_eigv = ov_params.min_eigv;
   qpb_double max_eigv = ov_params.max_eigv;
@@ -409,18 +415,6 @@ build_zolotarev_tables(overlap_level_t lvl, int order, qpb_double scaling_factor
   {
     shifts    [lvl][i] = c[2*i] * min_eigv_squared;
     numerators[lvl][i] = normalization_constant * b[i] * min_eigv;
-  }
-
-  /* Modify the numerical constants of the partial fraction expansion using the
-     scaling parameter */
-  if (scaling_factor != 1.0)
-  {
-    constant_term[lvl] *= 1/sqrt(scaling_factor);
-    for(int i=0; i<order; i++)
-    {
-      numerators[lvl][i] *= sqrt(scaling_factor);
-      shifts    [lvl][i] *= scaling_factor;
-    }
   }
 
   free(c);
@@ -468,13 +462,23 @@ X_op(qpb_spinor_field y, qpb_spinor_field x)
 }
 
 
+/* Effective |X| target: min(lambda_target, mu/sqrt(theta_max)). */
+INLINE qpb_double
+defl_effective_target(qpb_double theta_max)
+{
+  qpb_double mu_bound = defl_mu/sqrt(theta_max);
+  return (mu_bound < defl_lambda_target) ? mu_bound : defl_lambda_target;
+}
+
+
 /* Target-mode k for the current Ritz values eig[0..m-1] (ascending): the
-   number with theta < lambda_target^2, capped at k_max and at m-1 (theta_{k+1}
-   must exist). */
+   number with theta < lambda_eff^2, capped at k_max and at m-1 (theta_{k+1}
+   must exist).  eig[m-1] is the current estimate of theta_max. */
 INLINE int
 defl_k_for_target(qpb_double *eig, int m)
 {
-  qpb_double t2 = defl_lambda_target*defl_lambda_target;
+  qpb_double lambda_eff = defl_effective_target(eig[m-1]);
+  qpb_double t2 = lambda_eff*lambda_eff;
   int k = 0;
   while(k < m && eig[k] < t2)
     k++;
@@ -547,10 +551,10 @@ qpb_overlap_Zolotarev_disable_deflation(void)
  *  never lifted (all Ritz values come free from the tridiagonal).
  *
  *  With a spectral target set, k is not fixed: at each check k_cur = #{theta <
- *  lambda_target^2} (capped at k_max), and the test runs on theta_1..
- *  theta_{k_cur+1} and lambda_max.  The final k is k_cur when it passes (may be
- *  0: then only the spectral data are produced and nothing is deflated).  The
- *  low Ritz values only decrease with m, so k_cur never decreases.
+ *  lambda_eff^2} (capped at k_max), lambda_eff taken from the current theta_max
+ *  estimate, and the test runs on theta_1..theta_{k_cur+1} and lambda_max.  The
+ *  final k is k_cur when it passes (may be 0: then only the spectral data are
+ *  produced and nothing is deflated).
  *
  *  Returns: the converged Lanczos dimension m.
  * ------------------------------------------------------------------------- */
@@ -904,15 +908,16 @@ build_deflation_subspace(qpb_double Lanczos_epsilon, int Lanczos_max_vectors,
 
   if(target)
     {
-      int reached = (sqrt(theta_kp1) >= defl_lambda_target);
+      qpb_double lambda_eff = defl_effective_target(theta_max);
+      int reached = (sqrt(theta_kp1) >= lambda_eff);
       print(" Deflation target: lambda_target = %e, k = %d, sqrt(theta_1) = %e, "
 	    "sqrt(theta_{k+1}) = %e, reached = %d\n",
-	    defl_lambda_target, k, sqrt(theta_1), sqrt(theta_kp1), reached);
+	    lambda_eff, k, sqrt(theta_1), sqrt(theta_kp1), reached);
       if(!reached)
 	{
 	  DEFL_WARN(" Deflation: WARNING -- lambda_target = %e NOT reached (k = %d, "
 		"k_max = %d): sqrt(theta_{k+1}) = %e\n",
-		defl_lambda_target, k, kcap, sqrt(theta_kp1));
+		lambda_eff, k, kcap, sqrt(theta_kp1));
 	}
     }
 
@@ -932,6 +937,13 @@ qpb_overlap_Zolotarev_init(void * gauge, qpb_clover_term clover, \
 {
   if(ov_params.initialized != QPB_OVERLAP_INITIALIZED)
   {
+    if(!(scaling_factor > 0.))
+    {
+      error("Scaling factor = %g must be positive, quiting\n", scaling_factor);
+      exit(QPB_PARAMETERS_ERROR);
+    }
+    defl_mu = scaling_factor;   /* only used to choose the deflation k */
+
     qpb_comm_halo_spinor_field_init();
     for(int i=0; i<OVERLAP_NUMB_TEMP_VECS; i++)
     {
@@ -1078,15 +1090,13 @@ qpb_overlap_Zolotarev_init(void * gauge, qpb_clover_term clover, \
       if(order == 0)
       {
         /* order-0 fallback: sign(X) ≈ c0 X, minimax linear on [min,max_eigv].
-           Same 'constant_term' role and scaling as the order>=1 tables (it
-           multiplies X, with zero poles). */
+           Same 'constant_term' role as in the order>=1 tables (it multiplies
+           X, with zero poles). */
         shifts[lvl] = NULL; numerators[lvl] = NULL;
         constant_term[lvl] = 2.0 / (ov_params.min_eigv + ov_params.max_eigv);
-        if(scaling_factor != 1.0)
-          constant_term[lvl] *= 1.0 / sqrt(scaling_factor);
         continue;
       }
-      build_zolotarev_tables(lvl, order, scaling_factor);
+      build_zolotarev_tables(lvl, order);
     }
 
     /* L1 preconditioning is active if requested (positive tolerance AND a
