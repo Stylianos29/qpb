@@ -39,6 +39,7 @@ mainprogs/overlap-kl-pfrac/invert/invert
 mainprogs/overlap-kl-pfrac/mesons/mesons
 mainprogs/overlap-kl-pfrac/normality/normality
 mainprogs/overlap-kl-pfrac/sign-squared-values/sign-squared-values
+mainprogs/overlap-kl-pfrac/sign-squared-values-nested/sign-squared-values-nested
 mainprogs/overlap-kl-pfrac/sign-squared-violation/sign-squared-violation
 
 mainprogs/overlap-Neuberger/invert/invert

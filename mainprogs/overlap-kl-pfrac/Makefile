@@ -13,7 +13,7 @@ else
 	MAKE += --no-print-directory
 endif
 
-DIRS = eigens ginsparg-wilson-relation invert mesons normality sign-squared-values sign-squared-violation
+DIRS = eigens ginsparg-wilson-relation invert mesons normality sign-squared-values sign-squared-values-nested sign-squared-violation
 
 all: 
 	-$(C)for d in $(DIRS); do ($(MAKE) -C $$d); done
